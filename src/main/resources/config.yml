@@ -1,0 +1,35 @@
+# Shield 数据包采集配置
+
+database:
+  host: localhost
+  port: 5432
+  database: shield
+  username: shield
+  # 留空插件不会启动采集，请填入密码
+  password: ""
+  pool-size: 2
+  connection-timeout-ms: 5000
+  # 首次启动时建表（CREATE TABLE IF NOT EXISTS），已建库可保持开启
+  init-schema: true
+
+capture:
+  enabled: true
+  # 每名玩家移动类样本的最小间隔，控制数据密度；50ms 对应客户端每 tick 一个移动包
+  movement-min-interval-ms: 50
+  categories:
+    # 移动:POSITION / POSITION_LOOK / LOOK
+    movement: true
+    # 战斗:USE_ENTITY（攻击/交互目标） / ARM_ANIMATION（挥手）
+    combat: true
+    # 物品:USE_ITEM / BLOCK_PLACE / BLOCK_DIG
+    item: true
+    # 坐骑:STEER_VEHICLE（操控输入） / VEHICLE_MOVE（载具移动）
+    vehicle: true
+
+upload:
+  # 每批 INSERT 条数
+  batch-size: 500
+  # 落库线程的 flush 周期
+  flush-interval-ms: 1000
+  # 内存队列上限，超出丢弃新样本并计数；绝不阻塞捕获线程
+  queue-capacity: 100000

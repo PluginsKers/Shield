@@ -1,0 +1,23 @@
+name: Shield
+version: '${version}'
+main: com.eyreland.shield.ShieldPlugin
+api-version: '26.1'
+folia-supported: true
+description: '艾尔大陆:玩家数据包高密度采集'
+author: PluginsKers
+website: https://www.i5res.com
+depend: [ProtocolLib]
+
+commands:
+  shield:
+    description: Shield 采集管理命令
+    permission: shield.admin
+    usage: |
+      /shield status
+      /shield label <玩家|UUID> <normal|abnormal|clear>
+      /shield reload
+
+permissions:
+  shield.admin:
+    description: 允许管理 Shield 采集与玩家标记
+    default: op
