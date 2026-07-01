@@ -30,12 +30,21 @@ dependencies {
     // PG 驱动与连接池随插件 jar 一起 shade；Paper 的独立 ClassLoader 下不依赖外部库。
     implementation("org.postgresql:postgresql:42.7.4")
     implementation("com.zaxxer:HikariCP:6.1.0")
+
+    testImplementation(platform("org.junit:junit-bom:5.11.3"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testImplementation(kotlin("test"))
 }
 
 tasks {
     compileJava {
         options.encoding = "UTF-8"
         options.release.set(25)
+    }
+
+    test {
+        useJUnitPlatform()
     }
 
     processResources {

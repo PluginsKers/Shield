@@ -38,6 +38,7 @@ class PacketCaptureService(
     private val categoryByType = HashMap<PacketType, CaptureCategory>()
     private val nameByType = HashMap<PacketType, String>()
     private val lastMovementMs = ConcurrentHashMap<UUID, Long>()
+    private val afk = AfkTracker(config.afkTimeoutMs)
 
     @Volatile var enabled: Boolean = false
         private set
@@ -77,6 +78,7 @@ class PacketCaptureService(
         if (pm != null && ad != null) pm.removePacketListener(ad)
         adapter = null
         lastMovementMs.clear()
+        afk.clear()
     }
 
     private fun handle(event: PacketEvent) {
@@ -89,6 +91,9 @@ class PacketCaptureService(
             val uuid = player.uniqueId
 
             val now = System.currentTimeMillis()
+            updateActivity(event.packet, category, event.packetType, uuid, now)
+            if (afk.isAfk(uuid, now)) return
+
             if (category == CaptureCategory.MOVEMENT) {
                 val last = lastMovementMs[uuid]
                 if (last != null && now - last < config.movementMinIntervalMs) return
@@ -96,6 +101,21 @@ class PacketCaptureService(
             }
 
             writer.enqueue(buildSample(event, category, uuid, name, now))
+        }
+    }
+
+    /** 刷新挂机活动时间:移动类比对位移/转角，事件类直接计为人为动作。STEER_VEHICLE 是操控输入，非坐标。 */
+    private fun updateActivity(packet: PacketContainer, category: CaptureCategory, type: PacketType, uuid: UUID, now: Long) {
+        when (category) {
+            CaptureCategory.MOVEMENT ->
+                afk.onMovement(uuid, readDouble(packet, 0), readDouble(packet, 1), readDouble(packet, 2), readFloat(packet, 0), readFloat(packet, 1), now)
+            CaptureCategory.VEHICLE ->
+                if (type == PacketType.Play.Client.VEHICLE_MOVE) {
+                    afk.onMovement(uuid, readDouble(packet, 0), readDouble(packet, 1), readDouble(packet, 2), readFloat(packet, 0), readFloat(packet, 1), now)
+                } else {
+                    afk.onAction(uuid, now)
+                }
+            CaptureCategory.COMBAT, CaptureCategory.ITEM -> afk.onAction(uuid, now)
         }
     }
 
