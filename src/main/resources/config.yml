@@ -16,6 +16,8 @@ capture:
   enabled: true
   # 每名玩家移动类样本的最小间隔，控制数据密度；50ms 对应客户端每 tick 一个移动包
   movement-min-interval-ms: 50
+  # 玩家无实质移动/动作超过该时长后停止采集，恢复活动即续采；设为 0 关闭挂机停采
+  afk-timeout-ms: 180000
   categories:
     # 移动:POSITION / POSITION_LOOK / LOOK
     movement: true
