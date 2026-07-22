@@ -174,7 +174,7 @@ data class CaptureConfig(
                 ?.toSet()
                 ?: emptySet()
 
-        /** 仅供尚未迁移旧配置的安装使用；集合固定，不会随目录扩展而自动扩大。 */
+        /** 仅供尚未更新旧配置的安装使用；集合固定，不会随目录扩展而自动扩大。 */
         private fun defaultPacketRules(): Map<String, PacketRule> = linkedMapOf(
             "POSITION" to movementRule(),
             "POSITION_LOOK" to movementRule(),

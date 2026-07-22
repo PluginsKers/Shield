@@ -113,7 +113,7 @@ Shield 不直接引用 `BLOCK_PLACE` 等弃用静态常量，而是在启动时�
 
 `shield_player_labels` 保存 `/shield label` 的人工标记。
 
-本次 schema 升级为 v2。首次启动时若数据库没有 Shield 版本记录，会在事务中删除并重建旧的 `shield_packet_samples`；人工标记表保留。版本写入后，后续重启不会再次清空。
+本次 schema 直接切换为 v2，不迁移旧行。启动时只要 Shield 版本记录缺失或不等于当前版本，就会在事务中删除 `shield_packet_samples` 和 `shield_player_labels`，然后创建当前结构。版本写入后，相同版本的正常重启不会再次清空。
 
 ## 命令
 

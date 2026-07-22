@@ -63,7 +63,11 @@ class Database(private val config: DatabaseConfig, private val logger: Logger) {
 
         if (config.initSchema) {
             try {
-                withConnection { c -> inTransaction(c) { conn -> schema.createAll(conn) } }
+                var reset = false
+                withConnection { c -> inTransaction(c) { conn -> reset = schema.createAll(conn) } }
+                if (reset) {
+                    logger.warning("Shield schema 版本缺失或不一致，已直接重建样本表与人工标记表；旧数据未迁移")
+                }
             } catch (t: Throwable) {
                 logger.log(Level.SEVERE, "schema 初始化失败，已回滚", t)
                 close()

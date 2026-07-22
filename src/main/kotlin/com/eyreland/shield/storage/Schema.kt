@@ -5,14 +5,15 @@ import java.sql.Connection
 /**
  * Schema v2 使用稳定公共列 + JSONB 扩展载荷。
  *
- * 旧版没有版本表。首次升级时会在同一事务中删除旧样本表并重建；玩家人工标记表保持不变。
- * 后续启动读取版本号，不会重复清空。用户已明确允许本次样本库重置。
+ * 不迁移任何旧行。版本缺失或不一致时，在同一事务中直接删除 Shield 的样本表和人工标记表，
+ * 再创建当前结构；版本一致的正常重启不会清空新数据。
  */
 object Schema {
     private const val CURRENT_VERSION = 2
     private const val COMPONENT = "capture"
 
-    fun createAll(conn: Connection) {
+    /** @return true 表示本次直接删除并重建了 Shield 数据表。 */
+    fun createAll(conn: Connection): Boolean {
         conn.createStatement().use { statement ->
             statement.execute(
                 """
@@ -32,11 +33,12 @@ object Schema {
             statement.executeQuery().use { result -> if (result.next()) result.getInt(1) else null }
         }
 
-        require(version == null || version == CURRENT_VERSION) {
-            "不支持的 Shield schema 版本: $version，当前仅支持 $CURRENT_VERSION"
-        }
-        if (version == null) {
-            conn.createStatement().use { it.execute("DROP TABLE IF EXISTS shield_packet_samples") }
+        val reset = requiresReset(version)
+        if (reset) {
+            conn.createStatement().use { statement ->
+                statement.execute("DROP TABLE IF EXISTS shield_packet_samples")
+                statement.execute("DROP TABLE IF EXISTS shield_player_labels")
+            }
         }
 
         conn.createStatement().use { statement ->
@@ -56,7 +58,10 @@ object Schema {
             statement.setLong(3, System.currentTimeMillis())
             statement.executeUpdate()
         }
+        return reset
     }
+
+    internal fun requiresReset(version: Int?): Boolean = version != CURRENT_VERSION
 
     private val DDL = listOf(
         """
