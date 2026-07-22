@@ -67,7 +67,7 @@ class Database(private val config: DatabaseConfig, private val logger: Logger) {
             } catch (t: Throwable) {
                 logger.log(Level.SEVERE, "schema 初始化失败，已回滚", t)
                 close()
-                throw t
+                throw DatabaseConnectException("schema 初始化失败：${t.message}", t)
             }
         }
 

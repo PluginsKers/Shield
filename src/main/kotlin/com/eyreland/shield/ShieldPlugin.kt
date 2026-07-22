@@ -1,6 +1,7 @@
 package com.eyreland.shield
 
 import com.eyreland.shield.capture.PacketCaptureService
+import com.eyreland.shield.capture.PlayerContextStore
 import com.eyreland.shield.command.ShieldCommand
 import com.eyreland.shield.config.CaptureConfig
 import com.eyreland.shield.config.UploadConfig
@@ -27,11 +28,20 @@ class ShieldPlugin : JavaPlugin() {
     private var database: Database? = null
     private var writer: SampleWriter? = null
     private var capture: PacketCaptureService? = null
+    private var contexts: PlayerContextStore? = null
     private var labels: LabelStore? = null
     private var dbExecutor: ScheduledExecutorService? = null
 
     override fun onEnable() {
         saveDefaultConfig()
+
+        val captureConfig = try {
+            CaptureConfig.from(config.getConfigurationSection("capture"))
+        } catch (t: IllegalArgumentException) {
+            logger.severe("采集配置无效，停用 Shield：${t.message}")
+            server.pluginManager.disablePlugin(this)
+            return
+        }
 
         val db = Database(DatabaseConfig.from(config.getConfigurationSection("database")), logger)
         try {
@@ -57,7 +67,11 @@ class ShieldPlugin : JavaPlugin() {
         sampleWriter.start()
         this.writer = sampleWriter
 
-        capture = newCapture(labelStore, sampleWriter)
+        val contextStore = PlayerContextStore(this)
+        contextStore.start()
+        this.contexts = contextStore
+
+        capture = newCapture(contextStore, labelStore, sampleWriter, captureConfig)
 
         val cmd = getCommand("shield")
         if (cmd != null) {
@@ -71,21 +85,33 @@ class ShieldPlugin : JavaPlugin() {
         logger.info("Shield 已启用")
     }
 
-    private fun newCapture(labelStore: LabelStore, sampleWriter: SampleWriter): PacketCaptureService =
-        PacketCaptureService(this, CaptureConfig.from(config.getConfigurationSection("capture")), labelStore, sampleWriter, logger)
+    private fun newCapture(
+        contextStore: PlayerContextStore,
+        labelStore: LabelStore,
+        sampleWriter: SampleWriter,
+        captureConfig: CaptureConfig,
+    ): PacketCaptureService {
+        if (captureConfig.usedLegacyPacketDefaults) {
+            logger.warning("旧配置缺少 capture.packets，暂用固定兼容白名单；请按新版 config.yml 显式配置")
+        }
+        return PacketCaptureService(this, captureConfig, contextStore, labelStore, sampleWriter, logger)
             .also { it.start() }
+    }
 
-    /** 重载采集开关、密度与类目:重建捕获监听即可生效。数据库与上传参数变更需重启。 */
+    /** 先完整校验新策略，再替换监听器；无效配置不会中断当前采集。数据库与上传参数变更需重启。 */
     private fun reloadShield() {
         reloadConfig()
+        val captureConfig = CaptureConfig.from(config.getConfigurationSection("capture"))
+        val c = contexts ?: return
         val l = labels ?: return
         val w = writer ?: return
         capture?.stop()
-        capture = newCapture(l, w)
+        capture = newCapture(c, l, w, captureConfig)
     }
 
     override fun onDisable() {
         capture?.stop()
+        contexts?.stop()
         writer?.stop()
         dbExecutor?.let { ex ->
             ex.shutdown()
@@ -99,6 +125,7 @@ class ShieldPlugin : JavaPlugin() {
         database?.close()
 
         capture = null
+        contexts = null
         writer = null
         labels = null
         dbExecutor = null

@@ -59,6 +59,11 @@ class AfkTracker(
         return now - last >= timeoutMs
     }
 
+    fun remove(uuid: UUID) {
+        snapshots.remove(uuid)
+        lastActivityMs.remove(uuid)
+    }
+
     fun clear() {
         snapshots.clear()
         lastActivityMs.clear()

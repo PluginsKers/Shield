@@ -5,33 +5,87 @@ database:
   port: 5432
   database: shield
   username: shield
-  # 留空插件不会启动采集，请填入密码
+  # 留空时插件不会启动采集，请填入密码。
   password: ""
   pool-size: 2
   connection-timeout-ms: 5000
-  # 首次启动时建表（CREATE TABLE IF NOT EXISTS），已建库可保持开启
   init-schema: true
 
 capture:
   enabled: true
-  # 每名玩家移动类样本的最小间隔，控制数据密度；50ms 对应客户端每 tick 一个移动包
-  movement-min-interval-ms: 50
-  # 玩家无实质移动/动作超过该时长后停止采集，恢复活动即续采；设为 0 关闭挂机停采
+  # Velocity 多后端部署时必须为每个后端填写稳定且唯一的名称。
+  server-id: "default"
+  proxy-mode: "velocity"
+  # 无实质移动/动作超过该时长后停止落库；0 表示关闭挂机过滤。
   afk-timeout-ms: 180000
-  categories:
-    # 移动:POSITION / POSITION_LOOK / LOOK
-    movement: true
-    # 战斗:USE_ENTITY（攻击/交互目标） / ARM_ANIMATION（挥手）
-    combat: true
-    # 物品:USE_ITEM / BLOCK_PLACE / BLOCK_DIG
-    item: true
-    # 坐骑:STEER_VEHICLE（操控输入） / VEHICLE_MOVE（载具移动）
-    vehicle: true
+
+  # include 的每个非空维度都必须命中；exclude 任一维度命中即拒绝。空列表表示不限制。
+  # protocols 是 ProtocolLib 在后端连接上观测到的协议号。
+  filters:
+    include:
+      uuids: []
+      names: []
+      worlds: []
+      game-modes: []
+      labels: []
+      protocols: []
+    exclude:
+      uuids: []
+      names: []
+      worlds: []
+      game-modes: [SPECTATOR]
+      labels: []
+      protocols: []
+
+  # 显式白名单：只有这里列出的包才会落库。新增到 Shield 的包不会随升级自动开启。
+  # 值可写 true，也可写规则段：
+  #   min-interval-ms: 同一玩家同一 rate-limit-group 的最小采样间隔
+  #   include-actions / exclude-actions: 解码后的动作白/黑名单
+  #   raw-fields: 额外保存受限的原始标量/record 字段，用于低频包的版本诊断
+  packets:
+    POSITION:
+      min-interval-ms: 50
+      rate-limit-group: movement
+    POSITION_LOOK:
+      min-interval-ms: 50
+      rate-limit-group: movement
+    LOOK:
+      min-interval-ms: 50
+      rate-limit-group: movement
+    GROUND:
+      min-interval-ms: 50
+      rate-limit-group: movement
+
+    # 26.1+ 的攻击独立为 ATTACK；1.21.11 等版本仍从 USE_ENTITY 解出 ATTACK。
+    # 同时声明可让当前运行时自动选择受支持的形态。
+    ATTACK: true
+    USE_ENTITY:
+      raw-fields: true
+    ARM_ANIMATION: true
+
+    USE_ITEM: true
+    USE_ITEM_ON: true
+    BLOCK_DIG: true
+    ENTITY_ACTION: true
+    ABILITIES: true
+
+    # 旧版为扁平 float/boolean，现代版本为 Input record。
+    STEER_VEHICLE:
+      raw-fields: true
+    VEHICLE_MOVE:
+      min-interval-ms: 50
+    BOAT_MOVE: true
+
+    HELD_ITEM_SLOT: true
+    WINDOW_CLICK:
+      raw-fields: true
+
+  # 目录还支持按需加入：CLOSE_WINDOW、SET_CREATIVE_SLOT、ENCHANT_ITEM、PICK_ITEM、
+  # PICK_ITEM_FROM_BLOCK、CLIENT_COMMAND、TELEPORT_ACCEPT、PLAYER_LOADED、CLIENT_TICK_END、
+  # KEEP_ALIVE、PONG。聊天与自定义载荷不在目录中，避免无意采集隐私或任意插件数据。
 
 upload:
-  # 每批 INSERT 条数
   batch-size: 500
-  # 落库线程的 flush 周期
   flush-interval-ms: 1000
-  # 内存队列上限，超出丢弃新样本并计数；绝不阻塞捕获线程
+  # 队列满时丢弃新样本并计数，绝不阻塞 ProtocolLib 网络线程。
   queue-capacity: 100000

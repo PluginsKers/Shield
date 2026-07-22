@@ -13,7 +13,7 @@ import java.util.UUID
 /**
  * /shield 管理命令，全部需要 shield.admin（默认 op）。
  *
- * - status:采集开关、队列、累计落库/丢弃/失败、标记人数
+ * - status:采集开关、显式包、各阶段过滤、队列与累计落库状态
  * - label <玩家|UUID> <normal|abnormal|clear>:标记玩家，回填到后续样本的 label 列
  * - reload:重载采集开关与密度（数据库与上传参数变更需重启）
  */
@@ -33,8 +33,9 @@ class ShieldCommand(
             "status" -> status(sender)
             "label" -> label(sender, args)
             "reload" -> {
-                reload()
-                sender.sendMessage("§f已重载 Shield 采集配置")
+                runCatching(reload)
+                    .onSuccess { sender.sendMessage("§f已重载 Shield 采集配置") }
+                    .onFailure { sender.sendMessage("§c采集配置重载失败：${it.message}") }
             }
             else -> help(sender)
         }
@@ -42,11 +43,21 @@ class ShieldCommand(
     }
 
     private fun status(sender: CommandSender) {
-        val stats = writer.stats()
+        val writerStats = writer.stats()
         val counts = labels.counts()
-        val on = capture()?.enabled == true
+        val service = capture()
+        val captureStats = service?.stats()
+        val on = service?.enabled == true
         sender.sendMessage("§eShield §f采集=${if (on) "§a开" else "§c关"} §f队列=§e${writer.queued()}")
-        sender.sendMessage("§f落库=§e${stats.inserted} §f丢弃=§e${stats.dropped} §f失败=§e${stats.failed}")
+        sender.sendMessage(
+            "§f显式包=§e${service?.activePacketNames?.size ?: 0} §f不支持=§e${service?.unsupportedPacketNames?.size ?: 0} " +
+                "§f接收/入队=§e${captureStats?.received ?: 0}/${captureStats?.enqueued ?: 0}",
+        )
+        sender.sendMessage(
+            "§f过滤 玩家/动作/挂机/节流=§e${captureStats?.playerFiltered ?: 0}/${captureStats?.actionFiltered ?: 0}/" +
+                "${captureStats?.afkFiltered ?: 0}/${captureStats?.throttled ?: 0} §f解码失败=§e${captureStats?.decodeFailed ?: 0}",
+        )
+        sender.sendMessage("§f落库=§e${writerStats.inserted} §f丢弃=§e${writerStats.dropped} §f失败=§e${writerStats.failed}")
         sender.sendMessage("§f标记 normal=§e${counts["normal"] ?: 0} §fabnormal=§e${counts["abnormal"] ?: 0}")
     }
 
