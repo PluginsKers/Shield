@@ -1,9 +1,12 @@
 package com.eyreland.shield.capture
 
-/** 数据包归类，写入 shield_packet_samples.category，并作为 config 采集开关的键。 */
+/** 稳定的业务语义类目。具体数据包由配置白名单选择，类目不再承担开关职责。 */
 enum class CaptureCategory(val key: String) {
     MOVEMENT("movement"),
     COMBAT("combat"),
-    ITEM("item"),
+    INTERACTION("interaction"),
+    INVENTORY("inventory"),
+    PLAYER_STATE("player_state"),
     VEHICLE("vehicle"),
+    NETWORK("network"),
 }

@@ -2,6 +2,7 @@ package com.eyreland.shield.storage
 
 import com.eyreland.shield.capture.PacketSample
 import com.eyreland.shield.config.UploadConfig
+import org.postgresql.util.PGobject
 import java.sql.PreparedStatement
 import java.sql.Types
 import java.util.concurrent.ArrayBlockingQueue
@@ -41,8 +42,10 @@ class SampleWriter(
         )
     }
 
-    fun enqueue(sample: PacketSample) {
-        if (!queue.offer(sample)) dropped.incrementAndGet()
+    fun enqueue(sample: PacketSample): Boolean {
+        val accepted = queue.offer(sample)
+        if (!accepted) dropped.incrementAndGet()
+        return accepted
     }
 
     fun stats(): Stats = Stats(inserted.get(), dropped.get(), failed.get())
@@ -86,22 +89,46 @@ class SampleWriter(
     }
 
     private fun bind(ps: PreparedStatement, s: PacketSample) {
-        ps.setLong(1, s.recvAtMs)
-        ps.setObject(2, s.playerUuid)
-        ps.setString(3, s.playerName)
-        ps.setString(4, s.label)
-        ps.setString(5, s.category.key)
-        ps.setString(6, s.packetType)
-        setNullableString(ps, 7, s.world)
-        setNullableDouble(ps, 8, s.x)
-        setNullableDouble(ps, 9, s.y)
-        setNullableDouble(ps, 10, s.z)
-        setNullableFloat(ps, 11, s.yaw)
-        setNullableFloat(ps, 12, s.pitch)
-        setNullableBoolean(ps, 13, s.onGround)
-        setNullableInt(ps, 14, s.targetId)
-        setNullableString(ps, 15, s.action)
-        setNullableString(ps, 16, s.hand)
+        ps.setLong(1, s.capturedAtMs)
+        ps.setObject(2, s.sessionId)
+        ps.setLong(3, s.sessionSequence)
+        ps.setLong(4, s.sessionAgeMs)
+        setNullableLong(ps, 5, s.sincePreviousUs)
+        ps.setString(6, s.serverId)
+        ps.setString(7, s.proxyMode)
+        ps.setObject(8, s.playerUuid)
+        ps.setString(9, s.playerName)
+        ps.setString(10, s.label)
+        setNullableString(ps, 11, s.world)
+        setNullableString(ps, 12, s.gameMode)
+        setNullableInt(ps, 13, s.observedProtocol)
+        ps.setString(14, s.serverVersion)
+        ps.setString(15, s.category.key)
+        ps.setString(16, s.packetType)
+        setNullableString(ps, 17, s.action)
+        setNullableString(ps, 18, s.hand)
+        setNullableInt(ps, 19, s.targetEntityId)
+        setNullableDouble(ps, 20, s.x)
+        setNullableDouble(ps, 21, s.y)
+        setNullableDouble(ps, 22, s.z)
+        setNullableFloat(ps, 23, s.yaw)
+        setNullableFloat(ps, 24, s.pitch)
+        setNullableBoolean(ps, 25, s.onGround)
+        setNullableBoolean(ps, 26, s.horizontalCollision)
+        setNullableDouble(ps, 27, s.deltaX)
+        setNullableDouble(ps, 28, s.deltaY)
+        setNullableDouble(ps, 29, s.deltaZ)
+        setNullableFloat(ps, 30, s.deltaYaw)
+        setNullableFloat(ps, 31, s.deltaPitch)
+        setNullableDouble(ps, 32, s.distance)
+        setNullableDouble(ps, 33, s.horizontalDistance)
+        setNullableDouble(ps, 34, s.speedBps)
+        setNullableDouble(ps, 35, s.horizontalSpeedBps)
+        ps.setBoolean(36, s.movementChanged)
+        ps.setObject(37, PGobject().apply {
+            type = "jsonb"
+            value = JsonEncoder.encode(s.payload)
+        })
     }
 
     private fun setNullableString(ps: PreparedStatement, i: Int, v: String?) =
@@ -119,12 +146,20 @@ class SampleWriter(
     private fun setNullableInt(ps: PreparedStatement, i: Int, v: Int?) =
         if (v == null) ps.setNull(i, Types.INTEGER) else ps.setInt(i, v)
 
+    private fun setNullableLong(ps: PreparedStatement, i: Int, v: Long?) =
+        if (v == null) ps.setNull(i, Types.BIGINT) else ps.setLong(i, v)
+
     companion object {
         private val INSERT = """
             INSERT INTO shield_packet_samples
-                (recv_at_ms, player_uuid, player_name, label, category, packet_type,
-                 world, x, y, z, yaw, pitch, on_ground, target_id, action, hand)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (captured_at_ms, session_id, session_sequence, session_age_ms, since_previous_us,
+                 server_id, proxy_mode, player_uuid, player_name, label, world, game_mode,
+                 observed_protocol, server_version, category, packet_type, action, hand,
+                 target_entity_id, x, y, z, yaw, pitch, on_ground, horizontal_collision,
+                 delta_x, delta_y, delta_z, delta_yaw, delta_pitch, distance, horizontal_distance,
+                 speed_bps, horizontal_speed_bps, movement_changed, payload)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """.trimIndent()
     }
 }

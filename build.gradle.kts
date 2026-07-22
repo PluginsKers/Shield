@@ -12,6 +12,10 @@ java {
 
 kotlin {
     jvmToolchain(25)
+    compilerOptions {
+        // 1.21.x 后端只要求 Java 21；保持字节码兼容，同时用较新工具链编译 26.1 API。
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+    }
 }
 
 repositories {
@@ -24,7 +28,9 @@ repositories {
 }
 
 dependencies {
+    // 以旧端公共 API 为编译边界，产物可同时加载于 1.21.x 与 26.1 后端。
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
+    // 仅使用 5.4.0 已公开的稳定 API；Paper 26.1 运行时必须安装 ProtocolLib 5.5 开发版或更新版本。
     compileOnly("net.dmulloy2:ProtocolLib:5.4.0")
 
     // PG 驱动与连接池随插件 jar 一起 shade；Paper 的独立 ClassLoader 下不依赖外部库。
@@ -38,9 +44,9 @@ dependencies {
 }
 
 tasks {
-    compileJava {
+    withType<JavaCompile>().configureEach {
         options.encoding = "UTF-8"
-        options.release.set(25)
+        options.release.set(21)
     }
 
     test {

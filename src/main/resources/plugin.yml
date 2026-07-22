@@ -1,9 +1,9 @@
 name: Shield
 version: '${version}'
 main: com.eyreland.shield.ShieldPlugin
-api-version: '26.1'
+api-version: '1.21'
 folia-supported: true
-description: '艾尔大陆:玩家数据包高密度采集'
+description: '艾尔大陆：可配置、可预处理的玩家数据包采集'
 author: PluginsKers
 website: https://www.i5res.com
 depend: [ProtocolLib]
