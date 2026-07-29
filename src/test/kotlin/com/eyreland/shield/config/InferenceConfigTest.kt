@@ -13,7 +13,7 @@ class InferenceConfigTest {
 
         assertTrue(config.enabled)
         assertEquals(
-            "https://shield.i5res.com/v1/events",
+            "https://api.i5res.com/shield/v1/events",
             config.endpoint.toString(),
         )
         assertEquals(10.0, config.rolloutPercent)
