@@ -13,7 +13,7 @@ ProtocolLib
   → 有界内存队列
   → gzip + HMAC 的 shield.events.v1
   → 有界磁盘 spool
-  → HTTPS POST /v1/events
+  → HTTPS POST /shield/v1/events
   → 在线特征、评分、治理与人工复查
 ```
 
@@ -35,7 +35,7 @@ ProtocolLib
 4. 每个后端配置唯一的 `capture.server-id`，并启用 Velocity modern forwarding。
 5. 重启后执行 `/shield status`，检查 HTTP、spool、重试、拒绝和丢弃计数。
 
-默认接口为 `https://shield.i5res.com/v1/events`，默认按 UUID 稳定选择 10%
+默认接口为 `https://api.i5res.com/shield/v1/events`，默认按 UUID 稳定选择 10%
 玩家。`hmac-secret` 非空时优先；留空时从 `hmac-secret-env` 指定的环境变量读取。
 带真实密钥的部署配置不得提交到版本库。
 
@@ -46,7 +46,7 @@ ProtocolLib
 ```yaml
 inference:
   enabled: true
-  endpoint: "https://shield.i5res.com/v1/events"
+  endpoint: "https://api.i5res.com/shield/v1/events"
   key-id: "gray-local-20260729"
   hmac-secret: "<与 Shield-Inference 一致的至少 32 字符密钥>"
   hmac-secret-env: "SHIELD_INFERENCE_HMAC_SECRET"

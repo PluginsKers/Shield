@@ -2,7 +2,7 @@
 
 inference:
   enabled: true
-  endpoint: "https://shield.i5res.com/v1/events"
+  endpoint: "https://api.i5res.com/shield/v1/events"
   key-id: "gray-local-20260729"
   # 可直接填写 hmac-secret；非空时优先于环境变量。发布模板不得包含真实密钥。
   hmac-secret: ""
