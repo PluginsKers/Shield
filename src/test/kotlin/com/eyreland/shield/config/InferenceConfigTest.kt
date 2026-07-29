@@ -1,5 +1,6 @@
 package com.eyreland.shield.config
 
+import org.bukkit.configuration.file.YamlConfiguration
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -20,9 +21,21 @@ class InferenceConfigTest {
     }
 
     @Test
-    fun `enabled transport requires external secret`() {
+    fun `enabled transport requires configured secret`() {
         assertFailsWith<IllegalArgumentException> {
             InferenceConfig.from(null) { null }
         }
+    }
+
+    @Test
+    fun `inline secret makes config self contained and takes precedence`() {
+        val section = YamlConfiguration().apply {
+            set("hmac-secret", "inline-" + "x".repeat(32))
+            set("hmac-secret-env", "SHIELD_TEST_SECRET")
+        }
+
+        val config = InferenceConfig.from(section) { "environment-" + "y".repeat(32) }
+
+        assertEquals("inline-" + "x".repeat(32), config.hmacSecret)
     }
 }

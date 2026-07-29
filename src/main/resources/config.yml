@@ -3,8 +3,9 @@
 inference:
   enabled: true
   endpoint: "https://shield.i5res.com/v1/events"
-  # HMAC 密钥不写入仓库或 YAML。服务进程环境变量必须与 Shield-Inference 一致。
   key-id: "gray-local-20260729"
+  # 可直接填写 hmac-secret；非空时优先于环境变量。发布模板不得包含真实密钥。
+  hmac-secret: ""
   hmac-secret-env: "SHIELD_INFERENCE_HMAC_SECRET"
   allow-insecure-http: false
 
