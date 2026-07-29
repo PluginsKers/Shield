@@ -13,7 +13,7 @@ ProtocolLib
   → 有界内存队列
   → gzip + HMAC 的 shield.events.v1
   → 有界磁盘 spool
-  → HTTPS POST /v1/events
+  → HTTPS POST /shield/v1/events
   → 在线特征、评分、治理与人工复查
 ```
 
