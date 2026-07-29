@@ -48,13 +48,18 @@ data class InferenceConfig(
             require(keyId.isNotEmpty() && keyId.length <= 128) {
                 "inference.key-id 必须为 1..128 字符"
             }
+            val inlineSecret = section?.getString("hmac-secret")?.trim().orEmpty()
             val secretEnv = (section?.getString("hmac-secret-env", DEFAULT_SECRET_ENV)
                 ?: DEFAULT_SECRET_ENV).trim()
-            require(secretEnv.isNotEmpty()) { "inference.hmac-secret-env 不能为空" }
-            val secret = environment(secretEnv)?.trim().orEmpty()
+            val secret = if (inlineSecret.isNotEmpty()) {
+                inlineSecret
+            } else {
+                require(secretEnv.isNotEmpty()) { "inference.hmac-secret-env 不能为空" }
+                environment(secretEnv)?.trim().orEmpty()
+            }
             if (enabled) {
                 require(secret.length >= 32) {
-                    "环境变量 $secretEnv 未配置或少于 32 字符"
+                    "inference.hmac-secret 或环境变量 $secretEnv 未配置，或少于 32 字符"
                 }
             }
 

@@ -24,10 +24,11 @@ ProtocolLib
 ## 部署
 
 1. 准备 Paper 与对应版本的 ProtocolLib，不再需要 PostgreSQL。
-2. 为服务进程设置与 Shield-Inference 相同的 HMAC 密钥：
+2. 在 `config.yml` 直接填写与 Shield-Inference 相同的 HMAC 密钥：
 
-   ```text
-   SHIELD_INFERENCE_HMAC_SECRET=<至少 32 字符>
+   ```yaml
+   inference:
+     hmac-secret: "<至少 32 字符>"
    ```
 
 3. 执行 `./gradlew build`，部署 `build/libs/Shield-<version>.jar`。
@@ -35,7 +36,8 @@ ProtocolLib
 5. 重启后执行 `/shield status`，检查 HTTP、spool、重试、拒绝和丢弃计数。
 
 默认接口为 `https://shield.i5res.com/v1/events`，默认按 UUID 稳定选择 10%
-玩家。密钥只从环境变量读取，不写入仓库或 YAML。
+玩家。`hmac-secret` 非空时优先；留空时从 `hmac-secret-env` 指定的环境变量读取。
+带真实密钥的部署配置不得提交到版本库。
 
 旧数据库表不会被读取、写入或自动删除。历史数据的归档与删除是独立操作。
 
@@ -46,6 +48,7 @@ inference:
   enabled: true
   endpoint: "https://shield.i5res.com/v1/events"
   key-id: "gray-local-20260729"
+  hmac-secret: "<与 Shield-Inference 一致的至少 32 字符密钥>"
   hmac-secret-env: "SHIELD_INFERENCE_HMAC_SECRET"
 
   rollout-percent: 10.0
