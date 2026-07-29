@@ -1,8 +1,8 @@
-package com.eyreland.shield.storage
+package com.eyreland.shield.inference
 
 import java.lang.reflect.Array as ReflectArray
 
-/** 小型、无反射业务逻辑的 JSON 编码器；捕获解码阶段已把 payload 约束为简单值。 */
+/** 事件协议使用的小型 JSON 编码器；输入已在捕获解码阶段限制为简单值。 */
 object JsonEncoder {
     fun encode(value: Any?): String = buildString { appendValue(value) }
 

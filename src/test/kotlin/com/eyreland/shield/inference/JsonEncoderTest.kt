@@ -1,4 +1,4 @@
-package com.eyreland.shield.storage
+package com.eyreland.shield.inference
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -20,6 +20,9 @@ class JsonEncoderTest {
 
     @Test
     fun `non-finite floating point values become json null`() {
-        assertEquals("[null,null]", JsonEncoder.encode(listOf(Double.NaN, Float.POSITIVE_INFINITY)))
+        assertEquals(
+            "[null,null]",
+            JsonEncoder.encode(listOf(Double.NaN, Float.POSITIVE_INFINITY)),
+        )
     }
 }

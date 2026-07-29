@@ -40,8 +40,8 @@ data class CaptureEnrichment(
 )
 
 /**
- * 按后端连接会话维护完整姿态，并在真正落库时计算相邻样本特征。
- * 观察态与已落库态分离：节流掉的移动仍会更新当前姿态，但 delta 始终相对上一条已选样本。
+ * 按后端连接会话维护完整姿态，并在真正发送时计算相邻样本特征。
+ * 观察态与已选中态分离：节流掉的移动仍会更新当前姿态，但 delta 始终相对上一条已选样本。
  */
 class CaptureStateStore {
     private class State(context: CaptureContext) {
