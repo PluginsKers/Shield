@@ -9,8 +9,7 @@ import com.comphenix.protocol.events.PacketEvent
 import com.eyreland.shield.config.CaptureConfig
 import com.eyreland.shield.config.CaptureSubject
 import com.eyreland.shield.config.PacketRule
-import com.eyreland.shield.label.LabelStore
-import com.eyreland.shield.storage.SampleWriter
+import com.eyreland.shield.inference.EventSink
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.HandlerList
@@ -33,8 +32,7 @@ class PacketCaptureService(
     private val plugin: Plugin,
     private val config: CaptureConfig,
     private val contexts: PlayerContextStore,
-    private val labels: LabelStore,
-    private val writer: SampleWriter,
+    private val sink: EventSink,
     private val logger: Logger,
 ) : Listener {
     data class Stats(
@@ -47,6 +45,7 @@ class PacketCaptureService(
         val throttled: Long,
         val decodeFailed: Long,
         val missingContext: Long,
+        val grayFiltered: Long,
     )
 
     private var protocolManager: ProtocolManager? = null
@@ -58,6 +57,7 @@ class PacketCaptureService(
     private val selectedTypes = HashSet<PacketType>()
     private val fallbackContexts = ConcurrentHashMap<UUID, CaptureContext>()
     private val observedProtocols = ConcurrentHashMap<UUID, Int>()
+    private val activeSessions = ConcurrentHashMap<UUID, UUID>()
     private val state = CaptureStateStore()
     private val rateLimiter = CaptureRateLimiter()
     private val afk = AfkTracker(config.afkTimeoutMs)
@@ -71,6 +71,7 @@ class PacketCaptureService(
     private val throttled = AtomicLong()
     private val decodeFailed = AtomicLong()
     private val missingContext = AtomicLong()
+    private val grayFiltered = AtomicLong()
 
     @Volatile var enabled: Boolean = false
         private set
@@ -159,6 +160,8 @@ class PacketCaptureService(
         selectedTypes.clear()
         fallbackContexts.clear()
         observedProtocols.clear()
+        activeSessions.values.toSet().forEach(sink::closeSession)
+        activeSessions.clear()
         state.clear()
         rateLimiter.clear()
         afk.clear()
@@ -174,6 +177,7 @@ class PacketCaptureService(
         throttled = throttled.get(),
         decodeFailed = decodeFailed.get(),
         missingContext = missingContext.get(),
+        grayFiltered = grayFiltered.get(),
     )
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -181,6 +185,7 @@ class PacketCaptureService(
         val uuid = event.player.uniqueId
         fallbackContexts.remove(uuid)
         observedProtocols.remove(uuid)
+        activeSessions.remove(uuid)?.let(sink::closeSession)
         state.remove(uuid)
         rateLimiter.remove(uuid)
         afk.remove(uuid)
@@ -193,7 +198,12 @@ class PacketCaptureService(
         val player = event.player ?: return
         val uuid = runCatching { player.uniqueId }.getOrNull() ?: return
         val name = runCatching { player.name }.getOrNull()?.takeIf(String::isNotEmpty) ?: return
+        if (!sink.accepts(uuid)) {
+            grayFiltered.incrementAndGet()
+            return
+        }
         val context = contexts.get(uuid) ?: fallbackContext(uuid, name)
+        activeSessions[uuid] = context.sessionId
         val rule = ruleByType[event.packetType]
         val isSelected = event.packetType in selectedTypes && rule != null
         val nowMs = System.currentTimeMillis()
@@ -226,8 +236,7 @@ class PacketCaptureService(
             ?.let { runCatching { it.getProtocolVersion(player) }.getOrNull() }
             ?.takeIf { it >= 0 }
             ?.also { observedProtocols.putIfAbsent(uuid, it) }
-        val label = labels.labelOf(uuid)
-        val subject = CaptureSubject(uuid, context.playerName, context.world, context.gameMode, label, observedProtocol)
+        val subject = CaptureSubject(uuid, context.playerName, context.world, context.gameMode, observedProtocol)
         if (!config.filter.allows(subject)) {
             playerFiltered.incrementAndGet()
             return
@@ -260,7 +269,7 @@ class PacketCaptureService(
             proxyMode = config.proxyMode,
             playerUuid = uuid,
             playerName = context.playerName,
-            label = label,
+            label = PacketSample.UNLABELED,
             world = context.world,
             gameMode = context.gameMode,
             observedProtocol = observedProtocol,
@@ -289,7 +298,7 @@ class PacketCaptureService(
             movementChanged = derived.movementChanged,
             payload = payload,
         )
-        if (writer.enqueue(sample)) enqueued.incrementAndGet()
+        if (sink.enqueue(sample)) enqueued.incrementAndGet()
     }
 
     private fun updateActivity(

@@ -1,22 +1,42 @@
-# Shield 数据包采集配置
+# Shield 在线事件采集配置
 
-database:
-  host: localhost
-  port: 5432
-  database: shield
-  username: shield
-  # 留空时插件不会启动采集，请填入密码。
-  password: ""
-  pool-size: 2
-  connection-timeout-ms: 5000
-  init-schema: true
+inference:
+  enabled: true
+  endpoint: "https://shield.i5res.com/v1/events"
+  # HMAC 密钥不写入仓库或 YAML。服务进程环境变量必须与 Shield-Inference 一致。
+  key-id: "gray-local-20260729"
+  hmac-secret-env: "SHIELD_INFERENCE_HMAC_SECRET"
+  allow-insecure-http: false
+
+  # 玩家 UUID + 固定 salt 的稳定灰度。0 表示停采，100 表示全量。
+  rollout-percent: 10.0
+  rollout-salt: "shield-gray-v1"
+
+  # 捕获线程只做非阻塞 offer；I/O 单线程批量 gzip 后发送。
+  batch-size: 500
+  flush-interval-ms: 1000
+  queue-capacity: 20000
+  connect-timeout-ms: 3000
+  request-timeout-ms: 10000
+  retry-initial-ms: 1000
+  retry-max-ms: 60000
+  max-send-batches-per-cycle: 4
+
+  # 原始事件只允许进入有界、带 TTL 的短期重试区。
+  spool-directory: "inference-spool"
+  spool-max-bytes: 268435456
+  spool-max-batches: 4096
+  spool-ttl-ms: 21600000
+  quarantine-max-batches: 32
+  max-compressed-batch-bytes: 1500000
+  max-uncompressed-batch-bytes: 10485760
 
 capture:
   enabled: true
   # Velocity 多后端部署时必须为每个后端填写稳定且唯一的名称。
   server-id: "default"
   proxy-mode: "velocity"
-  # 无实质移动/动作超过该时长后停止落库；0 表示关闭挂机过滤。
+  # 无实质移动/动作超过该时长后停止发送；0 表示关闭挂机过滤。
   afk-timeout-ms: 180000
 
   # include 的每个非空维度都必须命中；exclude 任一维度命中即拒绝。空列表表示不限制。
@@ -27,17 +47,15 @@ capture:
       names: []
       worlds: []
       game-modes: []
-      labels: []
       protocols: []
     exclude:
       uuids: []
       names: []
       worlds: []
       game-modes: [SPECTATOR]
-      labels: []
       protocols: []
 
-  # 显式白名单：只有这里列出的包才会落库。新增到 Shield 的包不会随升级自动开启。
+  # 显式白名单：只有这里列出的包才会发送。新增到 Shield 的包不会随升级自动开启。
   # 值可写 true，也可写规则段：
   #   min-interval-ms: 同一玩家同一 rate-limit-group 的最小采样间隔
   #   include-actions / exclude-actions: 解码后的动作白/黑名单
@@ -83,9 +101,3 @@ capture:
   # 目录还支持按需加入：CLOSE_WINDOW、SET_CREATIVE_SLOT、ENCHANT_ITEM、PICK_ITEM、
   # PICK_ITEM_FROM_BLOCK、CLIENT_COMMAND、TELEPORT_ACCEPT、PLAYER_LOADED、CLIENT_TICK_END、
   # KEEP_ALIVE、PONG。聊天与自定义载荷不在目录中，避免无意采集隐私或任意插件数据。
-
-upload:
-  batch-size: 500
-  flush-interval-ms: 1000
-  # 队列满时丢弃新样本并计数，绝不阻塞 ProtocolLib 网络线程。
-  queue-capacity: 100000

@@ -25,12 +25,12 @@ class CaptureFilterTest {
     fun `any exclude dimension rejects subject`() {
         val filter = CaptureFilter(
             excludeGameModes = setOf("SPECTATOR"),
-            excludeLabels = setOf("unlabeled"),
+            excludeNames = setOf("blocked"),
         )
 
-        assertFalse(filter.allows(subject(gameMode = "spectator", label = "normal")))
-        assertFalse(filter.allows(subject(gameMode = "survival", label = "UNLABELED")))
-        assertTrue(filter.allows(subject(gameMode = "survival", label = "normal")))
+        assertFalse(filter.allows(subject(gameMode = "spectator")))
+        assertFalse(filter.allows(subject(name = "Blocked")))
+        assertTrue(filter.allows(subject(gameMode = "survival")))
     }
 
     @Test
@@ -50,7 +50,6 @@ class CaptureFilterTest {
         name: String = "Alice",
         world: String? = "world",
         gameMode: String? = "survival",
-        label: String = "normal",
         protocol: Int? = 774,
-    ) = CaptureSubject(uuid, name, world, gameMode, label, protocol)
+    ) = CaptureSubject(uuid, name, world, gameMode, protocol)
 }

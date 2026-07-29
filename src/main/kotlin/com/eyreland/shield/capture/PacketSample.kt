@@ -4,7 +4,7 @@ import java.util.UUID
 
 /**
  * 一条捕获到的数据包样本。字段按 [category] 取用，无关字段为 null。
- * 不可变，可安全跨线程从捕获线程交给落库线程。
+ * 不可变，可安全跨线程从捕获线程交给 HTTP sink。
  */
 data class PacketSample(
     val capturedAtMs: Long,
@@ -44,4 +44,8 @@ data class PacketSample(
     val horizontalSpeedBps: Double?,
     val movementChanged: Boolean,
     val payload: Map<String, Any?>,
-)
+) {
+    companion object {
+        const val UNLABELED = "unlabeled"
+    }
+}

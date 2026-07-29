@@ -24,7 +24,6 @@ data class CaptureSubject(
     val name: String,
     val world: String?,
     val gameMode: String?,
-    val label: String,
     val observedProtocol: Int?,
 )
 
@@ -37,40 +36,34 @@ data class CaptureFilter(
     val includeNames: Set<String> = emptySet(),
     val includeWorlds: Set<String> = emptySet(),
     val includeGameModes: Set<String> = emptySet(),
-    val includeLabels: Set<String> = emptySet(),
     val includeProtocols: Set<Int> = emptySet(),
     val excludeUuids: Set<UUID> = emptySet(),
     val excludeNames: Set<String> = emptySet(),
     val excludeWorlds: Set<String> = emptySet(),
     val excludeGameModes: Set<String> = emptySet(),
-    val excludeLabels: Set<String> = emptySet(),
     val excludeProtocols: Set<Int> = emptySet(),
 ) {
     fun allows(subject: CaptureSubject): Boolean {
         val name = subject.name.lowercase()
         val world = subject.world?.lowercase()
         val gameMode = subject.gameMode?.uppercase()
-        val label = subject.label.lowercase()
-
         if (includeUuids.isNotEmpty() && subject.uuid !in includeUuids) return false
         if (includeNames.isNotEmpty() && name !in includeNames) return false
         if (includeWorlds.isNotEmpty() && (world == null || world !in includeWorlds)) return false
         if (includeGameModes.isNotEmpty() && (gameMode == null || gameMode !in includeGameModes)) return false
-        if (includeLabels.isNotEmpty() && label !in includeLabels) return false
         if (includeProtocols.isNotEmpty() && (subject.observedProtocol == null || subject.observedProtocol !in includeProtocols)) return false
 
         if (subject.uuid in excludeUuids) return false
         if (name in excludeNames) return false
         if (world != null && world in excludeWorlds) return false
         if (gameMode != null && gameMode in excludeGameModes) return false
-        if (label in excludeLabels) return false
         if (subject.observedProtocol != null && subject.observedProtocol in excludeProtocols) return false
         return true
     }
 }
 
 /**
- * 采集策略。数据包采用显式白名单：只有 [packets] 中出现且值为 true/规则段的名称才会落库。
+ * 采集策略。数据包采用显式白名单：只有 [packets] 中出现且值为 true/规则段的名称才会发送。
  * 新增到代码目录的数据包不会在升级后自动开启。
  */
 data class CaptureConfig(
@@ -137,13 +130,11 @@ data class CaptureConfig(
                 includeNames = stringSet(include, "names") { it.lowercase() },
                 includeWorlds = stringSet(include, "worlds") { it.lowercase() },
                 includeGameModes = stringSet(include, "game-modes") { it.uppercase() },
-                includeLabels = stringSet(include, "labels") { it.lowercase() },
                 includeProtocols = intSet(include, "protocols"),
                 excludeUuids = uuidSet(exclude, "uuids"),
                 excludeNames = stringSet(exclude, "names") { it.lowercase() },
                 excludeWorlds = stringSet(exclude, "worlds") { it.lowercase() },
                 excludeGameModes = stringSet(exclude, "game-modes") { it.uppercase() },
-                excludeLabels = stringSet(exclude, "labels") { it.lowercase() },
                 excludeProtocols = intSet(exclude, "protocols"),
             )
         }

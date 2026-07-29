@@ -4,12 +4,9 @@ import com.eyreland.shield.capture.PacketCaptureService
 import com.eyreland.shield.capture.PlayerContextStore
 import com.eyreland.shield.command.ShieldCommand
 import com.eyreland.shield.config.CaptureConfig
-import com.eyreland.shield.config.UploadConfig
-import com.eyreland.shield.label.LabelStore
-import com.eyreland.shield.storage.Database
-import com.eyreland.shield.storage.DatabaseConfig
-import com.eyreland.shield.storage.SampleWriter
-import com.eyreland.shield.storage.Schema
+import com.eyreland.shield.config.InferenceConfig
+import com.eyreland.shield.inference.EventSink
+import com.eyreland.shield.inference.HttpEventSink
 import org.bukkit.plugin.java.JavaPlugin
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -18,118 +15,158 @@ import java.util.concurrent.TimeUnit
 /**
  * Shield 入口。
  *
- * 全部后台 I/O 走单线程 [ScheduledExecutorService]（落库 flush 周期任务 + 标记 upsert），
- * 不用 Bukkit 调度器，因此对 Folia 安全。捕获在 ProtocolLib 的 Netty 线程，命令在主/region 线程。
- *
- * 数据库连不上时停用插件而不关服:Shield 是采集插件，不应拖垮整个服务器。
+ * 捕获线程只做过滤、稳定语义解码和非阻塞 offer。gzip、spool、HMAC 与 HTTP 全部
+ * 由独立单线程执行器完成。接口故障只影响观测数据，不影响游戏线程或玩家处置。
  */
 class ShieldPlugin : JavaPlugin() {
 
-    private var database: Database? = null
-    private var writer: SampleWriter? = null
+    private var sink: EventSink? = null
     private var capture: PacketCaptureService? = null
     private var contexts: PlayerContextStore? = null
-    private var labels: LabelStore? = null
-    private var dbExecutor: ScheduledExecutorService? = null
+    private var ioExecutor: ScheduledExecutorService? = null
+    private var activeInferenceConfig: InferenceConfig? = null
+    private var activeServerId: String? = null
+    private var activeProxyMode: String? = null
 
     override fun onEnable() {
         saveDefaultConfig()
 
-        val captureConfig = try {
-            CaptureConfig.from(config.getConfigurationSection("capture"))
-        } catch (t: IllegalArgumentException) {
-            logger.severe("采集配置无效，停用 Shield：${t.message}")
-            server.pluginManager.disablePlugin(this)
-            return
-        }
-
-        val db = Database(DatabaseConfig.from(config.getConfigurationSection("database")), logger)
+        val captureConfig: CaptureConfig
+        val inferenceConfig: InferenceConfig
         try {
-            db.open(Schema)
-        } catch (t: Database.DatabaseConnectException) {
-            logger.severe("数据库连接失败，停用 Shield:${t.message}")
-            logger.severe("请检查 plugins/Shield/config.yml 的 database 段以及 PostgreSQL 是否可访问")
+            captureConfig = CaptureConfig.from(config.getConfigurationSection("capture"))
+            inferenceConfig = InferenceConfig.from(config.getConfigurationSection("inference"))
+        } catch (invalid: IllegalArgumentException) {
+            logger.severe("Shield 配置无效，停用插件：${invalid.message}")
             server.pluginManager.disablePlugin(this)
             return
         }
-        this.database = db
 
-        val executor = Executors.newSingleThreadScheduledExecutor { r ->
-            Thread(r, "shield-db").apply { isDaemon = true }
+        registerCommand()
+        if (!inferenceConfig.enabled) {
+            logger.warning("inference.enabled=false；Shield 不捕获也不保存原始事件")
+            logger.info("Shield 已启用（传输关闭，游戏 fail-open）")
+            return
         }
-        this.dbExecutor = executor
 
-        val labelStore = LabelStore(db, executor, logger)
-        labelStore.load()
-        this.labels = labelStore
+        val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "shield-inference").apply { isDaemon = true }
+        }
+        ioExecutor = executor
 
-        val sampleWriter = SampleWriter(db, UploadConfig.from(config.getConfigurationSection("upload")), executor, logger)
-        sampleWriter.start()
-        this.writer = sampleWriter
+        val pluginRoot = dataFolder.toPath().toAbsolutePath().normalize()
+        val spoolRoot = pluginRoot.resolve(inferenceConfig.spoolDirectory).normalize()
+        if (!spoolRoot.startsWith(pluginRoot)) {
+            logger.severe("inference.spool-directory 越出插件目录，停用 Shield")
+            server.pluginManager.disablePlugin(this)
+            return
+        }
+        val eventSink = HttpEventSink(
+            config = inferenceConfig,
+            serverId = captureConfig.serverId,
+            proxyMode = captureConfig.proxyMode,
+            spoolRoot = spoolRoot,
+            executor = executor,
+            logger = logger,
+        )
+        try {
+            eventSink.start()
+        } catch (failure: Throwable) {
+            logger.severe("事件 sink 启动失败，停用 Shield：${failure.message}")
+            server.pluginManager.disablePlugin(this)
+            return
+        }
+        sink = eventSink
+        activeInferenceConfig = inferenceConfig
+        activeServerId = captureConfig.serverId
+        activeProxyMode = captureConfig.proxyMode
 
         val contextStore = PlayerContextStore(this)
         contextStore.start()
-        this.contexts = contextStore
+        contexts = contextStore
+        capture = newCapture(contextStore, eventSink, captureConfig)
 
-        capture = newCapture(contextStore, labelStore, sampleWriter, captureConfig)
+        logger.info("Shield 已启用（HTTP-only，自动处置永久关闭）")
+    }
 
+    private fun registerCommand() {
         val cmd = getCommand("shield")
-        if (cmd != null) {
-            val handler = ShieldCommand({ capture }, sampleWriter, labelStore) { reloadShield() }
-            cmd.setExecutor(handler)
-            cmd.tabCompleter = handler
-        } else {
+        if (cmd == null) {
             logger.warning("plugin.yml 未声明 shield 命令")
+            return
         }
-
-        logger.info("Shield 已启用")
+        val handler = ShieldCommand(
+            capture = { capture },
+            sink = { sink },
+            reload = ::reloadShield,
+        )
+        cmd.setExecutor(handler)
+        cmd.tabCompleter = handler
     }
 
     private fun newCapture(
         contextStore: PlayerContextStore,
-        labelStore: LabelStore,
-        sampleWriter: SampleWriter,
+        eventSink: EventSink,
         captureConfig: CaptureConfig,
     ): PacketCaptureService {
         if (captureConfig.usedLegacyPacketDefaults) {
             logger.warning("旧配置缺少 capture.packets，暂用固定兼容白名单；请按新版 config.yml 显式配置")
         }
-        return PacketCaptureService(this, captureConfig, contextStore, labelStore, sampleWriter, logger)
-            .also { it.start() }
+        return PacketCaptureService(
+            this,
+            captureConfig,
+            contextStore,
+            eventSink,
+            logger,
+        ).also { it.start() }
     }
 
-    /** 先完整校验新策略，再替换监听器；无效配置不会中断当前采集。数据库与上传参数变更需重启。 */
+    /** 传输和 spool 参数需重启；reload 只原子替换捕获策略并切换会话。 */
     private fun reloadShield() {
         reloadConfig()
-        val captureConfig = CaptureConfig.from(config.getConfigurationSection("capture"))
-        val c = contexts ?: return
-        val l = labels ?: return
-        val w = writer ?: return
+        val newCaptureConfig = CaptureConfig.from(config.getConfigurationSection("capture"))
+        val newInferenceConfig = InferenceConfig.from(config.getConfigurationSection("inference"))
+        val currentInference = activeInferenceConfig
+            ?: throw IllegalStateException("传输当前未启用；修改 inference 后请重启")
+        require(newInferenceConfig == currentInference) {
+            "inference 参数变更需要重启"
+        }
+        require(
+            newCaptureConfig.serverId == activeServerId &&
+                newCaptureConfig.proxyMode == activeProxyMode,
+        ) {
+            "capture.server-id 或 proxy-mode 变更需要重启"
+        }
+        val contextStore = contexts ?: throw IllegalStateException("玩家上下文未启动")
+        val eventSink = sink ?: throw IllegalStateException("事件 sink 未启动")
+
         capture?.stop()
-        capture = newCapture(c, l, w, captureConfig)
+        contextStore.rotateSessions()
+        capture = newCapture(contextStore, eventSink, newCaptureConfig)
     }
 
     override fun onDisable() {
         capture?.stop()
         contexts?.stop()
-        writer?.stop()
-        dbExecutor?.let { ex ->
-            ex.shutdown()
+        sink?.stop()
+        ioExecutor?.let { executor ->
+            executor.shutdownNow()
             try {
-                if (!ex.awaitTermination(5, TimeUnit.SECONDS)) ex.shutdownNow()
+                if (!executor.awaitTermination(2, TimeUnit.SECONDS)) {
+                    logger.warning("事件 I/O 线程未在 2 秒内退出")
+                }
             } catch (_: InterruptedException) {
-                ex.shutdownNow()
                 Thread.currentThread().interrupt()
             }
         }
-        database?.close()
 
         capture = null
         contexts = null
-        writer = null
-        labels = null
-        dbExecutor = null
-        database = null
+        sink = null
+        ioExecutor = null
+        activeInferenceConfig = null
+        activeServerId = null
+        activeProxyMode = null
         logger.info("Shield 已禁用")
     }
 }

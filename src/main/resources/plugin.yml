@@ -3,21 +3,20 @@ version: '${version}'
 main: com.eyreland.shield.ShieldPlugin
 api-version: '1.21'
 folia-supported: true
-description: '艾尔大陆：可配置、可预处理的玩家数据包采集'
+description: '艾尔大陆：异步在线反作弊事件采集'
 author: PluginsKers
 website: https://www.i5res.com
 depend: [ProtocolLib]
 
 commands:
   shield:
-    description: Shield 采集管理命令
+    description: Shield 在线事件状态命令
     permission: shield.admin
     usage: |
       /shield status
-      /shield label <玩家|UUID> <normal|abnormal|clear>
       /shield reload
 
 permissions:
   shield.admin:
-    description: 允许管理 Shield 采集与玩家标记
+    description: 允许查看和重载 Shield
     default: op
