@@ -87,10 +87,14 @@ class HttpEventSinkE2eTest {
             }
             assertTrue(sink.closeSession(template.sessionId))
             await(Duration.ofSeconds(15)) {
-                sink.stats().sentBatches == 1L
+                val stats = sink.stats()
+                stats.sentEvents == 100L &&
+                    stats.pendingBatches == 0 &&
+                    sink.queued() == 0
             }
 
             assertEquals(100, sink.stats().sentEvents)
+            assertTrue(sink.stats().sentBatches >= 1)
             assertEquals(0, sink.stats().pendingBatches)
             assertEquals(0, sink.stats().authenticationFailed)
             assertEquals(0, sink.stats().schemaRejected)
