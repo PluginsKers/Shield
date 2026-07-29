@@ -29,7 +29,7 @@ data class InferenceConfig(
     val rolloutSalt: String,
 ) {
     companion object {
-        private const val DEFAULT_ENDPOINT = "https://shield.i5res.com/v1/events"
+        private const val DEFAULT_ENDPOINT = "https://api.i5res.com/shield/v1/events"
         private const val DEFAULT_SECRET_ENV = "SHIELD_INFERENCE_HMAC_SECRET"
 
         fun from(
@@ -131,8 +131,8 @@ data class InferenceConfig(
             require(endpoint.host != null && endpoint.userInfo == null && endpoint.query == null && endpoint.fragment == null) {
                 "inference.endpoint 必须是无账号、query 和 fragment 的绝对地址"
             }
-            require(endpoint.path == "/v1/events") {
-                "inference.endpoint 路径必须为 /v1/events"
+            require(endpoint.path == "/v1/events" || endpoint.path == "/shield/v1/events") {
+                "inference.endpoint 路径必须为 /v1/events 或 /shield/v1/events"
             }
             val loopback = endpoint.host == "127.0.0.1" || endpoint.host == "localhost"
             require(endpoint.scheme == "https" || (endpoint.scheme == "http" && (allowInsecureHttp || loopback))) {
