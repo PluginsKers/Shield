@@ -38,10 +38,10 @@ internal object ShieldCommandView {
         queuedRecords: Int,
     ): List<String> {
         if (sinkStats == null) {
-            return listOf("§cShield 未运行 §7· 事件传输未启用")
+            return listOf("§cShield 未运行§7，事件传输尚未启用。")
         }
         if (!captureEnabled) {
-            return listOf("§eShield 待命 §7· 采集未运行")
+            return listOf("§eShield 待命§7，采集当前没有运行。")
         }
 
         val permanentFailures = decodeFailures > 0 ||
@@ -59,34 +59,35 @@ internal object ShieldCommandView {
             else -> "§aShield 正常"
         }
         val lines = mutableListOf(
-            "$state §7· 已发送 §f${number(sinkStats.sentBatches)} 批 / " +
-                "${number(sinkStats.sentEvents)} 事件 §7· 待发 §f" +
-                "${number(sinkStats.pendingBatches)} 批 / ${number(queuedRecords)} 条",
+            "$state§7。已发送 §f${number(sinkStats.sentBatches)}§7 批、" +
+                "§f${number(sinkStats.sentEvents)}§7 个事件，待发送 " +
+                "§f${number(sinkStats.pendingBatches)}§7 批；内存中还有 " +
+                "§f${number(queuedRecords)}§7 条记录。",
         )
         val problems = buildList {
             if (decodeFailures > 0) {
-                add("解码失败 §f${number(decodeFailures)} 条")
+                add("解码失败 §f${number(decodeFailures)}§7 条")
             }
             if (sinkStats.queueDropped > 0) {
-                add("内存丢弃 §f${number(sinkStats.queueDropped)} 条")
+                add("内存丢弃 §f${number(sinkStats.queueDropped)}§7 条")
             }
             if (sinkStats.spoolDroppedBatches > 0) {
                 add(
-                    "磁盘丢弃 §f${number(sinkStats.spoolDroppedBatches)} 批 / " +
-                        "${number(sinkStats.spoolDroppedEvents)} 事件",
+                    "磁盘丢弃 §f${number(sinkStats.spoolDroppedBatches)}§7 批、" +
+                        "§f${number(sinkStats.spoolDroppedEvents)}§7 个事件",
                 )
             }
             if (sinkStats.quarantinedBatches > 0) {
-                add("隔离 §f${number(sinkStats.quarantinedBatches)} 批")
+                add("隔离 §f${number(sinkStats.quarantinedBatches)}§7 批")
             }
             val rejected = sinkStats.authenticationFailed +
                 sinkStats.schemaRejected +
                 sinkStats.otherRejected
-            if (rejected > 0) add("服务拒绝 §f${number(rejected)} 次")
-            if (lastHttpFailed) add("最近 HTTP §f${sinkStats.lastHttpStatus}")
+            if (rejected > 0) add("服务拒绝 §f${number(rejected)}§7 次")
+            if (lastHttpFailed) add("最近一次 HTTP 状态为 §f${sinkStats.lastHttpStatus}§7")
         }
         if (problems.isNotEmpty()) {
-            lines += "§7原因 · ${problems.joinToString(" §7· ")}"
+            lines += "§7检测到：${problems.joinToString("；")}。"
         }
         return lines
     }
@@ -108,7 +109,7 @@ class ShieldCommand(
         args: Array<out String>,
     ): Boolean {
         if (!sender.hasPermission("shield.admin")) {
-            sender.sendMessage("§c你没有权限使用该命令")
+            sender.sendMessage("§c你没有权限管理 Shield。")
             return true
         }
         when (ShieldCommandView.action(args.toList())) {
@@ -117,11 +118,11 @@ class ShieldCommand(
                 runCatching(reload)
                     .onSuccess {
                         sender.sendMessage(
-                            "§aShield 采集策略已重载 §7· 传输配置变更仍需重启",
+                            "§aShield 已重载采集策略§7。传输配置变更仍需重启服务器。",
                         )
                     }
                     .onFailure {
-                        sender.sendMessage("§cShield 重载失败 §7· ${it.message ?: "请查看控制台"}")
+                        sender.sendMessage("§cShield 重载失败§7：${it.message ?: "请查看控制台"}")
                     }
             }
             ShieldCommandAction.USAGE -> sender.sendMessage(ShieldCommandView.USAGE)
