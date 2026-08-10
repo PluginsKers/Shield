@@ -2,12 +2,99 @@ package com.eyreland.shield.command
 
 import com.eyreland.shield.capture.PacketCaptureService
 import com.eyreland.shield.inference.EventSink
+import com.eyreland.shield.inference.EventSinkStats
 import org.bukkit.command.Command
 import org.bukkit.command.CommandExecutor
 import org.bukkit.command.CommandSender
 import org.bukkit.command.TabCompleter
+import java.util.Locale
 
-/** `/shield` 只展示捕获与治理传输状态，不在游戏服内执行裁决。 */
+internal enum class ShieldCommandAction {
+    STATUS,
+    RELOAD,
+    USAGE,
+}
+
+internal object ShieldCommandView {
+    const val USAGE = "§7用法：/shield [reload]"
+
+    fun action(args: List<String>): ShieldCommandAction = when {
+        args.isEmpty() -> ShieldCommandAction.STATUS
+        args.size == 1 && args[0].equals("status", ignoreCase = true) -> ShieldCommandAction.STATUS
+        args.size == 1 && args[0].equals("reload", ignoreCase = true) -> ShieldCommandAction.RELOAD
+        else -> ShieldCommandAction.USAGE
+    }
+
+    fun suggestions(args: List<String>): List<String> = if (args.size == 1) {
+        listOf("reload").filter { it.startsWith(args[0].lowercase()) }
+    } else {
+        emptyList()
+    }
+
+    fun status(
+        captureEnabled: Boolean,
+        decodeFailures: Long,
+        sinkStats: EventSinkStats?,
+        queuedRecords: Int,
+    ): List<String> {
+        if (sinkStats == null) {
+            return listOf("§cShield 未运行 §7· 事件传输未启用")
+        }
+        if (!captureEnabled) {
+            return listOf("§eShield 待命 §7· 采集未运行")
+        }
+
+        val permanentFailures = decodeFailures > 0 ||
+            sinkStats.queueDropped > 0 ||
+            sinkStats.spoolDroppedBatches > 0 ||
+            sinkStats.spoolDroppedEvents > 0 ||
+            sinkStats.quarantinedBatches > 0 ||
+            sinkStats.authenticationFailed > 0 ||
+            sinkStats.schemaRejected > 0 ||
+            sinkStats.otherRejected > 0
+        val lastHttpFailed = sinkStats.lastHttpStatus?.let { it !in 200..299 } == true
+        val state = when {
+            permanentFailures -> "§cShield 异常"
+            lastHttpFailed -> "§eShield 同步中"
+            else -> "§aShield 正常"
+        }
+        val lines = mutableListOf(
+            "$state §7· 已发送 §f${number(sinkStats.sentBatches)} 批 / " +
+                "${number(sinkStats.sentEvents)} 事件 §7· 待发 §f" +
+                "${number(sinkStats.pendingBatches)} 批 / ${number(queuedRecords)} 条",
+        )
+        val problems = buildList {
+            if (decodeFailures > 0) {
+                add("解码失败 §f${number(decodeFailures)} 条")
+            }
+            if (sinkStats.queueDropped > 0) {
+                add("内存丢弃 §f${number(sinkStats.queueDropped)} 条")
+            }
+            if (sinkStats.spoolDroppedBatches > 0) {
+                add(
+                    "磁盘丢弃 §f${number(sinkStats.spoolDroppedBatches)} 批 / " +
+                        "${number(sinkStats.spoolDroppedEvents)} 事件",
+                )
+            }
+            if (sinkStats.quarantinedBatches > 0) {
+                add("隔离 §f${number(sinkStats.quarantinedBatches)} 批")
+            }
+            val rejected = sinkStats.authenticationFailed +
+                sinkStats.schemaRejected +
+                sinkStats.otherRejected
+            if (rejected > 0) add("服务拒绝 §f${number(rejected)} 次")
+            if (lastHttpFailed) add("最近 HTTP §f${sinkStats.lastHttpStatus}")
+        }
+        if (problems.isNotEmpty()) {
+            lines += "§7原因 · ${problems.joinToString(" §7· ")}"
+        }
+        return lines
+    }
+
+    private fun number(value: Number): String = String.format(Locale.ROOT, "%,d", value.toLong())
+}
+
+/** `/shield` 只展示请求链路状态，不在游戏服内执行裁决。 */
 class ShieldCommand(
     private val capture: () -> PacketCaptureService?,
     private val sink: () -> EventSink?,
@@ -24,14 +111,20 @@ class ShieldCommand(
             sender.sendMessage("§c你没有权限使用该命令")
             return true
         }
-        when (args.getOrNull(0)?.lowercase()) {
-            "status" -> status(sender)
-            "reload" -> {
+        when (ShieldCommandView.action(args.toList())) {
+            ShieldCommandAction.STATUS -> status(sender)
+            ShieldCommandAction.RELOAD -> {
                 runCatching(reload)
-                    .onSuccess { sender.sendMessage("§f已重载 Shield 捕获策略") }
-                    .onFailure { sender.sendMessage("§c配置重载失败：${it.message}") }
+                    .onSuccess {
+                        sender.sendMessage(
+                            "§aShield 采集策略已重载 §7· 传输配置变更仍需重启",
+                        )
+                    }
+                    .onFailure {
+                        sender.sendMessage("§cShield 重载失败 §7· ${it.message ?: "请查看控制台"}")
+                    }
             }
-            else -> help(sender)
+            ShieldCommandAction.USAGE -> sender.sendMessage(ShieldCommandView.USAGE)
         }
         return true
     }
@@ -40,51 +133,12 @@ class ShieldCommand(
         val captureService = capture()
         val captureStats = captureService?.stats()
         val eventSink = sink()
-        val sinkStats = eventSink?.stats()
-        sender.sendMessage(
-            "§eShield §f采集=${if (captureService?.enabled == true) "§a开" else "§c关"}" +
-                " §fHTTP=${if (eventSink != null) "§a开" else "§c关"}" +
-                " §f内存队列=§e${eventSink?.queued() ?: 0}",
-        )
-        if (eventSink != null) {
-            sender.sendMessage(
-                "§f接口=§e${eventSink.endpoint.host} §f发送批次/事件=§e" +
-                    "${sinkStats?.sentBatches ?: 0}/${sinkStats?.sentEvents ?: 0}" +
-                    " §f重试/429=§e${sinkStats?.retried ?: 0}/${sinkStats?.rateLimited ?: 0}",
-            )
-            sender.sendMessage(
-                "§fspool 批次/字节=§e${sinkStats?.pendingBatches ?: 0}/${sinkStats?.spoolBytes ?: 0}" +
-                    " §f隔离=§e${sinkStats?.quarantinedBatches ?: 0}" +
-                    " §f内存丢弃=§e${sinkStats?.queueDropped ?: 0}",
-            )
-            sender.sendMessage(
-                "§fspool 丢弃批次/事件=§e${sinkStats?.spoolDroppedBatches ?: 0}/" +
-                    "${sinkStats?.spoolDroppedEvents ?: 0}",
-            )
-            sender.sendMessage(
-                "§f认证/schema/其他拒绝=§e${sinkStats?.authenticationFailed ?: 0}/" +
-                    "${sinkStats?.schemaRejected ?: 0}/${sinkStats?.otherRejected ?: 0}" +
-                    " §f网络失败=§e${sinkStats?.networkFailed ?: 0}" +
-                    " §f最后 HTTP=§e${sinkStats?.lastHttpStatus ?: "-"}",
-            )
-        }
-        sender.sendMessage(
-            "§f显式包=§e${captureService?.activePacketNames?.size ?: 0}" +
-                " §f接收/入队=§e${captureStats?.received ?: 0}/${captureStats?.enqueued ?: 0}" +
-                " §f灰度过滤=§e${captureStats?.grayFiltered ?: 0}",
-        )
-        sender.sendMessage(
-            "§f过滤 玩家/动作/挂机/节流=§e${captureStats?.playerFiltered ?: 0}/" +
-                "${captureStats?.actionFiltered ?: 0}/${captureStats?.afkFiltered ?: 0}/" +
-                "${captureStats?.throttled ?: 0} §f解码失败=§e${captureStats?.decodeFailed ?: 0}",
-        )
-        sender.sendMessage("§7当前仅 shadow 观测；Shield 不执行踢出或封禁")
-    }
-
-    private fun help(sender: CommandSender) {
-        sender.sendMessage("§eShield 命令")
-        sender.sendMessage("§7/shield status")
-        sender.sendMessage("§7/shield reload")
+        ShieldCommandView.status(
+            captureEnabled = captureService?.enabled == true,
+            decodeFailures = captureStats?.decodeFailed ?: 0,
+            sinkStats = eventSink?.stats(),
+            queuedRecords = eventSink?.queued() ?: 0,
+        ).forEach(sender::sendMessage)
     }
 
     override fun onTabComplete(
@@ -94,10 +148,6 @@ class ShieldCommand(
         args: Array<out String>,
     ): List<String> {
         if (!sender.hasPermission("shield.admin")) return emptyList()
-        return if (args.size == 1) {
-            listOf("status", "reload").filter { it.startsWith(args[0].lowercase()) }
-        } else {
-            emptyList()
-        }
+        return ShieldCommandView.suggestions(args.toList())
     }
 }
