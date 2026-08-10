@@ -38,8 +38,8 @@ class ShieldCommandViewTest {
 
         assertEquals(
             listOf(
-                "§aShield 正常 §7· 已发送 §f1,234 批 / 56,789 事件 " +
-                    "§7· 待发 §f2 批 / 3 条",
+                "§aShield 正常§7。已发送 §f1,234§7 批、§f56,789§7 个事件，" +
+                    "待发送 §f2§7 批；内存中还有 §f3§7 条记录。",
             ),
             lines,
         )
@@ -51,11 +51,11 @@ class ShieldCommandViewTest {
     @Test
     fun `disabled and idle states stay one line`() {
         assertEquals(
-            listOf("§cShield 未运行 §7· 事件传输未启用"),
+            listOf("§cShield 未运行§7，事件传输尚未启用。"),
             ShieldCommandView.status(false, 0, null, 0),
         )
         assertEquals(
-            listOf("§eShield 待命 §7· 采集未运行"),
+            listOf("§eShield 待命§7，采集当前没有运行。"),
             ShieldCommandView.status(false, 0, stats(), 0),
         )
     }
@@ -71,7 +71,7 @@ class ShieldCommandViewTest {
 
         assertEquals(2, lines.size)
         assertTrue(lines[0].startsWith("§eShield 同步中"))
-        assertEquals("§7原因 · 最近 HTTP §f429", lines[1])
+        assertEquals("§7检测到：最近一次 HTTP 状态为 §f429§7。", lines[1])
     }
 
     @Test
@@ -94,8 +94,9 @@ class ShieldCommandViewTest {
         assertEquals(2, lines.size)
         assertTrue(lines[0].startsWith("§cShield 异常"))
         assertEquals(
-            "§7原因 · 解码失败 §f4 条 §7· 内存丢弃 §f3 条 §7· " +
-                "磁盘丢弃 §f2 批 / 20 事件 §7· 隔离 §f1 批 §7· 服务拒绝 §f6 次",
+            "§7检测到：解码失败 §f4§7 条；内存丢弃 §f3§7 条；" +
+                "磁盘丢弃 §f2§7 批、§f20§7 个事件；隔离 §f1§7 批；" +
+                "服务拒绝 §f6§7 次。",
             lines[1],
         )
     }

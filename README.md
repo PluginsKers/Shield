@@ -8,7 +8,7 @@ Shield 在 Velocity 后端通过 ProtocolLib 捕获客户端入站包，转换�
 
 ```text
 ProtocolLib
-  → 显式白名单 / 过滤 / 节流
+  → 显式白名单、过滤与节流
   → 玩家 UUID 稳定灰度
   → 有界内存队列
   → gzip + HMAC 的 shield.events.v1
