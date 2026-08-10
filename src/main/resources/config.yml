@@ -59,7 +59,7 @@ capture:
   # 显式白名单：只有这里列出的包才会发送。新增到 Shield 的包不会随升级自动开启。
   # 值可写 true，也可写规则段：
   #   min-interval-ms: 同一玩家同一 rate-limit-group 的最小采样间隔
-  #   include-actions / exclude-actions: 解码后的动作白/黑名单
+  #   include-actions 与 exclude-actions：解码后的动作白名单和黑名单
   #   raw-fields: 额外保存受限的原始标量/record 字段，用于低频包的版本诊断
   packets:
     POSITION:

@@ -28,6 +28,31 @@ class ShieldCommandViewTest {
     }
 
     @Test
+    fun `command copy avoids decorative separators`() {
+        val messages = buildList {
+            add(ShieldCommandView.USAGE)
+            add(ShieldCommandView.NO_PERMISSION)
+            add(ShieldCommandView.RELOAD_SUCCESS)
+            add(ShieldCommandView.reloadFailure(null))
+            addAll(ShieldCommandView.status(false, 0, null, 0))
+            addAll(ShieldCommandView.status(true, 0, stats(), 0))
+            addAll(
+                ShieldCommandView.status(
+                    captureEnabled = true,
+                    decodeFailures = 1,
+                    sinkStats = stats(lastHttpStatus = 500),
+                    queuedRecords = 1,
+                ),
+            )
+        }
+        val separators = listOf("\u00B7", " ${124.toChar()} ", " ${47.toChar()} ")
+
+        messages.forEach { message ->
+            assertTrue(separators.none(message::contains), message)
+        }
+    }
+
+    @Test
     fun `healthy status is one conclusion line without implementation details`() {
         val lines = ShieldCommandView.status(
             captureEnabled = true,

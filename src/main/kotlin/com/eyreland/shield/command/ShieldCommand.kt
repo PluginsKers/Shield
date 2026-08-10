@@ -17,6 +17,10 @@ internal enum class ShieldCommandAction {
 
 internal object ShieldCommandView {
     const val USAGE = "§7用法：/shield [reload]"
+    const val NO_PERMISSION = "§c你没有权限管理 Shield。"
+    const val RELOAD_SUCCESS = "§aShield 已重载采集策略§7。传输配置变更仍需重启服务器。"
+
+    fun reloadFailure(reason: String?): String = "§cShield 重载失败§7：${reason ?: "请查看控制台"}"
 
     fun action(args: List<String>): ShieldCommandAction = when {
         args.isEmpty() -> ShieldCommandAction.STATUS
@@ -109,7 +113,7 @@ class ShieldCommand(
         args: Array<out String>,
     ): Boolean {
         if (!sender.hasPermission("shield.admin")) {
-            sender.sendMessage("§c你没有权限管理 Shield。")
+            sender.sendMessage(ShieldCommandView.NO_PERMISSION)
             return true
         }
         when (ShieldCommandView.action(args.toList())) {
@@ -117,12 +121,10 @@ class ShieldCommand(
             ShieldCommandAction.RELOAD -> {
                 runCatching(reload)
                     .onSuccess {
-                        sender.sendMessage(
-                            "§aShield 已重载采集策略§7。传输配置变更仍需重启服务器。",
-                        )
+                        sender.sendMessage(ShieldCommandView.RELOAD_SUCCESS)
                     }
                     .onFailure {
-                        sender.sendMessage("§cShield 重载失败§7：${it.message ?: "请查看控制台"}")
+                        sender.sendMessage(ShieldCommandView.reloadFailure(it.message))
                     }
             }
             ShieldCommandAction.USAGE -> sender.sendMessage(ShieldCommandView.USAGE)
