@@ -10,13 +10,11 @@ depend: [ProtocolLib]
 
 commands:
   shield:
-    description: Shield 在线事件状态命令
+    description: 查看 Shield 请求链路状态或重载采集策略
     permission: shield.admin
-    usage: |
-      /shield status
-      /shield reload
+    usage: '/shield [reload]'
 
 permissions:
   shield.admin:
-    description: 允许查看和重载 Shield
+    description: 允许查看 Shield 状态并重载采集策略
     default: op

@@ -33,7 +33,7 @@ ProtocolLib
 
 3. 执行 `./gradlew build`，部署 `build/libs/Shield-<version>.jar`。
 4. 每个后端配置唯一的 `capture.server-id`，并启用 Velocity modern forwarding。
-5. 重启后执行 `/shield status`，检查 HTTP、spool、重试、拒绝和丢弃计数。
+5. 重启后执行 `/shield`，确认请求链路正常且没有异常摘要。
 
 默认接口为 `https://api.i5res.com/shield/v1/events`，默认按 UUID 稳定选择 10%
 玩家。`hmac-secret` 非空时优先；留空时从 `hmac-secret-env` 指定的环境变量读取。
@@ -136,15 +136,16 @@ capture:
 ## 运维
 
 ```text
-/shield status
+/shield
 /shield reload
 ```
 
-`status` 展示：
+`/shield` 正常时只展示一行请求链路结论、累计发送量和待发量；仅在解码、
+丢弃、隔离或服务拒绝时追加一行异常摘要。旧 `/shield status` 保留为兼容
+别名，但不进入帮助或命令补全。
 
-- 捕获接收、入队、灰度过滤、动作/AFK/节流与解码失败；
-- 内存队列、pending/隔离 spool、发送批次和事件；
-- 重试、429、认证失败、schema 拒绝、网络失败和最后 HTTP 状态。
+`/shield reload` 只原子重载采集策略。接口、密钥、spool、server-id 或
+proxy-mode 等传输配置变更仍需重启服务器，命令反馈会明确提示这一边界。
 
 当前治理服务处于 shadow，模型清单也禁止线上复查裁决。Shield 永远不根据
 接口故障或模型分数处罚玩家。
