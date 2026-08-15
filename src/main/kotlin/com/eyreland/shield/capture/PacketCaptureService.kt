@@ -468,6 +468,7 @@ class PacketCaptureService(
 
     private fun emitCollectionTelemetry() {
         if (!enabled) return
+        val processUptimeNanos = (System.nanoTime() - processStartedNanos).coerceAtLeast(0L)
         val online = contexts.snapshot().sortedBy { it.playerUuid.toString() }
         val eligible = online.filter(::isEligible)
         val capturedInInterval = capturedPlayers.drain()
@@ -475,8 +476,8 @@ class PacketCaptureService(
         sink.enqueueTelemetry(
             CollectionTelemetry(
                 capturedAtMs = System.currentTimeMillis(),
-                processUptimeMs = ((System.nanoTime() - processStartedNanos).coerceAtLeast(0L)) / 1_000_000L,
-                serverTick = plugin.server.currentTick.toLong(),
+                processUptimeMs = processUptimeNanos / 1_000_000L,
+                serverTick = logicalTicksSinceStart(processUptimeNanos),
                 tps1m = plugin.server.tps.firstOrNull() ?: 0.0,
                 mspt = plugin.server.averageTickTime.coerceAtLeast(0.0),
                 onlinePlayerUuids = online.map(CaptureContext::playerUuid),
@@ -534,6 +535,10 @@ class PacketCaptureService(
             )
         }
 }
+
+/** Folia 全局调度器不处于 ticking region；采集证明使用进程内单调逻辑 tick。 */
+internal fun logicalTicksSinceStart(processUptimeNanos: Long): Long =
+    processUptimeNanos / 50_000_000L
 
 internal class CapturedPlayerIntervals {
     private val active = AtomicReference(ConcurrentHashMap.newKeySet<UUID>())
