@@ -14,7 +14,7 @@ internal sealed interface LedgerRegistration {
     data object AlreadyPending : LedgerRegistration
 }
 
-/** 小型持久化台账，保证 HTTP 重试与进程重启都不会重复执行玩家动作。 */
+/** 持久化指令状态；重试复用已有结果，重启时未完成的已调度动作记为 invalid。 */
 internal class InterventionLedger(
     private val path: Path,
 ) {

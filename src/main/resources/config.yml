@@ -34,8 +34,8 @@ inference:
   max-compressed-batch-bytes: 1500000
   max-uncompressed-batch-bytes: 10485760
 
-# 推理端先观察 15 个 60 秒桶才可能下发一次警告；本地冷却进一步避免重复打扰。
-# 警告不处罚。踢出默认关闭，并要求本地至少成功警告过一次。
+# 推理端决定是否下发指令；本地冷却限制同一玩家的重复提示。
+# 警告不处罚。踢出默认关闭，并要求本地已有成功警告记录。
 interventions:
   enabled: true
   ledger-retention-hours: 168
