@@ -40,6 +40,13 @@ internal object ShieldCommandView {
         decodeFailures: Long,
         sinkStats: EventSinkStats?,
         queuedRecords: Int,
+        onlinePlayers: Int = 0,
+        eligiblePlayers: Int = 0,
+        capturedPlayers: Int = 0,
+        grayFiltered: Long = 0,
+        playerFiltered: Long = 0,
+        throttled: Long = 0,
+        unsupportedPackets: Int = 0,
     ): List<String> {
         if (sinkStats == null) {
             return listOf("§cShield 未运行§7，事件传输尚未启用。")
@@ -68,6 +75,10 @@ internal object ShieldCommandView {
                 "§f${number(sinkStats.pendingBatches)}§7 批；内存中还有 " +
                 "§f${number(queuedRecords)}§7 条记录。",
         )
+        lines += "§7采集覆盖：在线 §f${number(onlinePlayers)}§7，符合条件 " +
+            "§f${number(eligiblePlayers)}§7，已采集 §f${number(capturedPlayers)}§7；" +
+            "灰度过滤 §f${number(grayFiltered)}§7，玩家过滤 §f${number(playerFiltered)}§7，" +
+            "节流 §f${number(throttled)}§7，不支持包型 §f${number(unsupportedPackets)}§7。"
         val problems = buildList {
             if (decodeFailures > 0) {
                 add("解码失败 §f${number(decodeFailures)}§7 条")
@@ -141,6 +152,13 @@ class ShieldCommand(
             decodeFailures = captureStats?.decodeFailed ?: 0,
             sinkStats = eventSink?.stats(),
             queuedRecords = eventSink?.queued() ?: 0,
+            onlinePlayers = captureStats?.onlinePlayers ?: 0,
+            eligiblePlayers = captureStats?.eligiblePlayers ?: 0,
+            capturedPlayers = captureStats?.capturedPlayers ?: 0,
+            grayFiltered = captureStats?.grayFiltered ?: 0,
+            playerFiltered = captureStats?.playerFiltered ?: 0,
+            throttled = captureStats?.throttled ?: 0,
+            unsupportedPackets = captureStats?.unsupportedPackets ?: 0,
         ).forEach(sender::sendMessage)
     }
 

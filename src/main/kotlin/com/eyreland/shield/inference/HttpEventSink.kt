@@ -45,6 +45,8 @@ class HttpEventSink(
     private val logger: Logger,
     private val clock: Clock = Clock.systemUTC(),
     private val httpClient: HttpClient = defaultHttpClient(config),
+    private val responseHandler: (UUID, ByteArray) -> Unit = { _, _ -> },
+    private val persistedReceiptHandler: (List<String>) -> Unit = {},
 ) : EventSink {
     override val endpoint: URI = config.endpoint
 
@@ -95,7 +97,8 @@ class HttpEventSink(
             )
         }
         logger.info(
-            "Shield 事件 sink 已启动：endpoint=$endpoint，gray=${config.rolloutPercent}%," +
+            "Shield 事件 sink 已启动：endpoint=$endpoint，schema=${config.schemaVersion}," +
+                " gray=${config.rolloutPercent}%," +
                 " batch=${config.batchSize}，spool<=${config.spoolMaxBytes} bytes/${config.spoolTtlMs} ms",
         )
     }
@@ -109,6 +112,28 @@ class HttpEventSink(
         }
         serverVersion.set(sample.serverVersion)
         val accepted = queue.offer(OutboundRecord.Event(sample))
+        if (!accepted) queueDropped.incrementAndGet()
+        return accepted
+    }
+
+    override fun enqueueTelemetry(telemetry: CollectionTelemetry): Boolean {
+        if (config.schemaVersion != "shield.events.v2") return false
+        if (!started) {
+            queueDropped.incrementAndGet()
+            return false
+        }
+        val accepted = queue.offer(OutboundRecord.Telemetry(telemetry))
+        if (!accepted) queueDropped.incrementAndGet()
+        return accepted
+    }
+
+    override fun enqueueInterventionReceipt(receipt: InterventionReceipt): Boolean {
+        if (config.schemaVersion != "shield.events.v2") return false
+        if (!started) {
+            queueDropped.incrementAndGet()
+            return false
+        }
+        val accepted = queue.offer(OutboundRecord.InterventionHandled(receipt))
         if (!accepted) queueDropped.incrementAndGet()
         return accepted
     }
@@ -206,6 +231,7 @@ class HttpEventSink(
             serverId = serverId,
             proxyMode = proxyMode,
             serverVersion = serverVersion.get(),
+            schemaVersion = config.schemaVersion,
             nowMs = clock.millis(),
         )
         val oversized = encoded.transmittedBody.size > config.maxCompressedBatchBytes ||
@@ -232,6 +258,7 @@ class HttpEventSink(
         Files.write(temporary, encoded.transmittedBody)
         setOwnerOnlyFilePermissions(temporary)
         atomicMove(temporary, target)
+        persistedReceiptHandler(encoded.interventionReceiptIds)
     }
 
     private fun buildFilename(batch: EncodedBatch): String = "%013d_%020d_%04d_%04d_%s.json.gz".format(
@@ -289,7 +316,7 @@ class HttpEventSink(
             .build()
 
         val response = try {
-            httpClient.send(request, HttpResponse.BodyHandlers.discarding())
+            httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream())
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
             networkFailed.incrementAndGet()
@@ -307,6 +334,28 @@ class HttpEventSink(
         val status = response.statusCode()
         lastHttpStatus.set(status)
         if (status in 200..299) {
+            val responseBody = try {
+                response.body().use { stream ->
+                    stream.readNBytes(MAX_ACK_BYTES + 1).also {
+                        require(it.size <= MAX_ACK_BYTES) { "推理响应超过大小上限" }
+                    }
+                }
+            } catch (failure: Throwable) {
+                networkFailed.incrementAndGet()
+                retried.incrementAndGet()
+                scheduleRetry(clock.millis())
+                logFailure("无法读取推理响应", failure)
+                return SendResult.RETRY_LATER
+            }
+            try {
+                responseHandler(entry.batchId, responseBody)
+            } catch (failure: Throwable) {
+                schemaRejected.incrementAndGet()
+                retried.incrementAndGet()
+                scheduleRetry(clock.millis())
+                logFailure("推理响应契约无效", failure)
+                return SendResult.RETRY_LATER
+            }
             Files.deleteIfExists(entry.path)
             sentBatches.incrementAndGet()
             sentEvents.addAndGet(entry.eventCount.toLong())
@@ -315,6 +364,7 @@ class HttpEventSink(
             nextAttemptAtMs = 0
             return SendResult.SUCCESS
         }
+        runCatching { response.body().close() }
 
         if (status == 429 || status == 408 || status == 425 || status >= 500) {
             if (status == 429) rateLimited.incrementAndGet() else networkFailed.incrementAndGet()
@@ -425,10 +475,13 @@ class HttpEventSink(
 
     private fun metadata(path: Path): SpoolEntry? {
         val match = PENDING_NAME.matchEntire(path.name) ?: return null
+        val batchId = runCatching { UUID.fromString(match.groupValues[5]) }.getOrNull()
+            ?: return null
         return SpoolEntry(
             path = path,
             eventCount = match.groupValues[3].toInt(),
             closedSessionCount = match.groupValues[4].toInt(),
+            batchId = batchId,
         )
     }
 
@@ -509,6 +562,7 @@ class HttpEventSink(
         val path: Path,
         val eventCount: Int,
         val closedSessionCount: Int,
+        val batchId: UUID,
     )
 
     private enum class SendResult { SUCCESS, RETRY_LATER, REJECTED }
@@ -517,6 +571,7 @@ class HttpEventSink(
         private val PENDING_NAME = Regex(
             """^(\d{13})_(\d{20})_(\d{4})_(\d{4})_([0-9a-f-]{36})\.json\.gz$""",
         )
+        private const val MAX_ACK_BYTES = 1024 * 1024
 
         private fun defaultHttpClient(config: InferenceConfig): HttpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofMillis(config.connectTimeoutMs))

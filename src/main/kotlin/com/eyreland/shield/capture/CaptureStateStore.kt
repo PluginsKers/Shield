@@ -20,6 +20,7 @@ data class CaptureEnrichment(
     val sessionSequence: Long,
     val sessionAgeMs: Long,
     val sincePreviousUs: Long?,
+    val sessionMonotonicUs: Long,
     val x: Double?,
     val y: Double?,
     val z: Double?,
@@ -63,6 +64,8 @@ class CaptureStateStore {
         var emittedOnGround: Boolean? = null
         var emittedHorizontalCollision: Boolean? = null
         var lastSampleNanos: Long? = null
+        var firstSampleNanos: Long? = null
+        var lastMonotonicUs: Long = -1
     }
 
     private val states = ConcurrentHashMap<UUID, State>()
@@ -89,6 +92,9 @@ class CaptureStateStore {
             state.sequence += 1
 
             val sincePreviousUs = state.lastSampleNanos?.let { ((nowNanos - it).coerceAtLeast(0L)) / 1_000L }
+            val firstNanos = state.firstSampleNanos ?: nowNanos.also { state.firstSampleNanos = it }
+            val elapsedUs = ((nowNanos - firstNanos).coerceAtLeast(0L)) / 1_000L
+            val sessionMonotonicUs = maxOf(elapsedUs, state.lastMonotonicUs + 1L)
             val dx = delta(state.x, state.emittedX)
             val dy = delta(state.y, state.emittedY)
             val dz = delta(state.z, state.emittedZ)
@@ -108,6 +114,7 @@ class CaptureStateStore {
                 sessionSequence = state.sequence,
                 sessionAgeMs = (nowMs - context.joinedAtMs).coerceAtLeast(0L),
                 sincePreviousUs = sincePreviousUs,
+                sessionMonotonicUs = sessionMonotonicUs,
                 x = state.x,
                 y = state.y,
                 z = state.z,
@@ -135,6 +142,7 @@ class CaptureStateStore {
             state.emittedOnGround = state.onGround
             state.emittedHorizontalCollision = state.horizontalCollision
             state.lastSampleNanos = nowNanos
+            state.lastMonotonicUs = sessionMonotonicUs
             return result
         }
     }

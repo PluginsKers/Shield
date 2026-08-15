@@ -36,6 +36,8 @@ class PlayerContextStore(private val plugin: Plugin) : Listener {
 
     fun get(uuid: UUID): CaptureContext? = contexts[uuid]
 
+    fun snapshot(): List<CaptureContext> = contexts.values.toList()
+
     /**
      * 捕获监听器重建时切换会话 ID，防止新序列从 1 开始却复用旧 session_id。
      * 这里只改不可变快照，不跨线程读取 Bukkit Player。

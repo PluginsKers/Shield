@@ -1,0 +1,212 @@
+package com.eyreland.shield.inference
+
+import com.eyreland.shield.config.InterventionConfig
+import net.kyori.adventure.text.TextComponent
+import net.kyori.adventure.text.format.NamedTextColor
+import org.bukkit.configuration.file.YamlConfiguration
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Path
+import java.util.UUID
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
+
+class InterventionProtocolTest {
+    @TempDir
+    lateinit var temporaryDirectory: Path
+
+    @Test
+    fun `ack decoder accepts bounded v2 directives`() {
+        val directives = InferenceAckDecoder.decode(
+            """
+            {
+              "schema_version":"shield.events.ack.v2",
+              "player_interventions":[{
+                "directive_id":"intervention-test",
+                "player_uuid":"00000000-0000-0000-0000-000000000010",
+                "kind":"warn",
+                "reason":"persistent_priority_anomaly",
+                "issued_at_ms":1900000000000,
+                "expires_at_ms":1900001800000
+              }]
+            }
+            """.trimIndent().encodeToByteArray(),
+        )
+
+        assertEquals(1, directives.size)
+        assertEquals(InterventionKind.WARN, directives.single().kind)
+        assertEquals(
+            UUID.fromString("00000000-0000-0000-0000-000000000010"),
+            directives.single().playerUuid,
+        )
+    }
+
+    @Test
+    fun `ack decoder rejects directives outside v2 contract`() {
+        assertFailsWith<IllegalArgumentException> {
+            InferenceAckDecoder.decode(
+                """
+                {"schema_version":"shield.events.ack.v1","player_interventions":[{
+                  "directive_id":"intervention-test",
+                  "player_uuid":"00000000-0000-0000-0000-000000000010",
+                  "kind":"warn","reason":"test",
+                  "issued_at_ms":2,"expires_at_ms":1
+                }]}
+                """.trimIndent().encodeToByteArray(),
+            )
+        }
+    }
+
+    @Test
+    fun `ack directive must belong to current request batch`() {
+        val expected = UUID.fromString("00000000-0000-0000-0000-000000000030")
+        val body = """
+            {
+              "schema_version":"shield.events.ack.v2",
+              "batch_id":"00000000-0000-0000-0000-000000000031",
+              "player_interventions":[{
+                "directive_id":"intervention-test",
+                "player_uuid":"00000000-0000-0000-0000-000000000010",
+                "kind":"warn","reason":"test",
+                "issued_at_ms":1,"expires_at_ms":2
+              }]
+            }
+        """.trimIndent().encodeToByteArray()
+
+        assertFailsWith<IllegalArgumentException> {
+            InferenceAckDecoder.decode(body, expected)
+        }
+    }
+
+    @Test
+    fun `ledger persists dedupe and enforces long warning cooldown`() {
+        val path = temporaryDirectory.resolve("ledger.properties")
+        val config = InterventionConfig.from(null)
+        val now = 1_900_000_000_000
+        val first = directive("first", now)
+        val ledger = InterventionLedger(path)
+
+        assertIs<LedgerRegistration.Ready>(ledger.register(first, config, now))
+        assertEquals(
+            InterventionOutcome.APPLIED,
+            ledger.complete(first, InterventionOutcome.APPLIED, now).outcome,
+        )
+        assertEquals(1, InterventionLedger(path).pendingReceipts().size)
+        ledger.markReceiptPersisted(first.directiveId)
+        assertEquals(0, InterventionLedger(path).pendingReceipts().size)
+        val duplicate = assertIs<LedgerRegistration.ReceiptOnly>(
+            InterventionLedger(path).register(first, config, now + 1),
+        )
+        assertEquals(InterventionOutcome.APPLIED, duplicate.receipt.outcome)
+
+        val second = directive("second", now + 60_000)
+        val cooledDown = assertIs<LedgerRegistration.ReceiptOnly>(
+            InterventionLedger(path).register(second, config, now + 60_000),
+        )
+        assertEquals(InterventionOutcome.IGNORED_COOLDOWN, cooledDown.receipt.outcome)
+    }
+
+    @Test
+    fun `directive id cannot be reused with different content`() {
+        val now = 1_900_000_000_000
+        val first = directive("collision", now)
+        val ledger = InterventionLedger(temporaryDirectory.resolve("collision.properties"))
+        assertIs<LedgerRegistration.Ready>(
+            ledger.register(first, InterventionConfig.from(null), now),
+        )
+
+        assertFailsWith<IllegalArgumentException> {
+            ledger.register(
+                first.copy(reason = "different"),
+                InterventionConfig.from(null),
+                now,
+            )
+        }
+    }
+
+    @Test
+    fun `warning component has exact red prefix and white message`() {
+        val component = PlayerInterventionService.warningComponent(
+            InterventionConfig.from(null),
+        )
+
+        val prefix = assertIs<TextComponent>(component)
+        val message = assertIs<TextComponent>(component.children().single())
+        assertEquals("[!]", prefix.content())
+        assertEquals(NamedTextColor.RED, prefix.color())
+        assertEquals(" 你当前的行为存在异常", message.content())
+        assertEquals(NamedTextColor.WHITE, message.color())
+    }
+
+    @Test
+    fun `local gate rejects kick without successful warning history`() {
+        val config = InterventionConfig.from(
+            YamlConfiguration().apply {
+                set("kick.enabled", true)
+                set("kick.minimum-prior-warnings", 1)
+            },
+        )
+        val now = 1_900_000_000_000
+        val kick = directive("kick-first", now, InterventionKind.KICK)
+
+        val result = assertIs<LedgerRegistration.ReceiptOnly>(
+            InterventionLedger(temporaryDirectory.resolve("kick-ledger.properties"))
+                .register(kick, config, now),
+        )
+
+        assertEquals(InterventionOutcome.IGNORED_COOLDOWN, result.receipt.outcome)
+    }
+
+    @Test
+    fun `local gate admits configured kick after successful warning`() {
+        val config = InterventionConfig.from(
+            YamlConfiguration().apply {
+                set("kick.enabled", true)
+                set("kick.minimum-prior-warnings", 1)
+            },
+        )
+        val now = 1_900_000_000_000
+        val ledger = InterventionLedger(temporaryDirectory.resolve("kick-ready.properties"))
+        val warning = directive("warning", now)
+        assertIs<LedgerRegistration.Ready>(ledger.register(warning, config, now))
+        ledger.complete(warning, InterventionOutcome.APPLIED, now)
+
+        val kick = directive("kick", now + 1, InterventionKind.KICK)
+        assertIs<LedgerRegistration.Ready>(ledger.register(kick, config, now + 1))
+    }
+
+    @Test
+    fun `restart never repeats an action whose dispatch outcome is unknown`() {
+        val path = temporaryDirectory.resolve("recovery-ledger.properties")
+        val now = 1_900_000_000_000
+        val warning = directive("recovery", now)
+        val ledger = InterventionLedger(path)
+        assertIs<LedgerRegistration.Ready>(
+            ledger.register(warning, InterventionConfig.from(null), now),
+        )
+        assertEquals(true, ledger.markDispatched(warning.directiveId))
+
+        val reopened = InterventionLedger(path)
+        reopened.recoverInterrupted(now + 1)
+
+        assertEquals(0, reopened.pending().size)
+        assertEquals(
+            InterventionOutcome.INVALID,
+            reopened.pendingReceipts().single().outcome,
+        )
+    }
+
+    private fun directive(
+        id: String,
+        issuedAtMs: Long,
+        kind: InterventionKind = InterventionKind.WARN,
+    ) = PlayerInterventionDirective(
+        directiveId = "intervention-$id",
+        playerUuid = UUID.fromString("00000000-0000-0000-0000-000000000010"),
+        kind = kind,
+        reason = "persistent_priority_anomaly",
+        issuedAtMs = issuedAtMs,
+        expiresAtMs = issuedAtMs + 30 * 60 * 1_000,
+    )
+}
