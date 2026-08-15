@@ -8,7 +8,10 @@ import org.bukkit.plugin.java.JavaPlugin
 import java.nio.file.Path
 import java.time.Clock
 import java.util.UUID
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import java.util.logging.Level
 import java.util.logging.Logger
@@ -24,13 +27,14 @@ class PlayerInterventionService(
 ) {
     private val config = AtomicReference(initialConfig)
     private val ledger = InterventionLedger(ledgerPath)
+    private val receiptRetryScheduled = AtomicBoolean()
 
     @Volatile private var started = false
 
     fun start() {
         started = true
         ledger.recoverInterrupted(clock.millis())
-        ledger.pendingReceipts().forEach(::enqueueReceipt)
+        retryPendingReceipts()
         ledger.pending().forEach(::dispatch)
     }
 
@@ -129,8 +133,34 @@ class PlayerInterventionService(
     }
 
     private fun enqueueReceipt(receipt: InterventionReceipt) {
-        if (!receiptSink(receipt)) {
-            logger.warning("玩家干预回执队列已满：${receipt.directiveId}")
+        if (receiptSink(receipt)) return
+        logger.warning("玩家干预回执队列已满，稍后重试：${receipt.directiveId}")
+        scheduleReceiptRetry()
+    }
+
+    private fun retryPendingReceipts() {
+        for (receipt in ledger.pendingReceipts()) {
+            if (receiptSink(receipt)) continue
+            logger.warning("玩家干预回执队列仍满，稍后重试：${receipt.directiveId}")
+            scheduleReceiptRetry()
+            return
+        }
+    }
+
+    private fun scheduleReceiptRetry() {
+        if (!started || !receiptRetryScheduled.compareAndSet(false, true)) return
+        try {
+            executor.schedule(
+                {
+                    receiptRetryScheduled.set(false)
+                    if (started) retryPendingReceipts()
+                },
+                1,
+                TimeUnit.SECONDS,
+            )
+        } catch (rejected: RejectedExecutionException) {
+            receiptRetryScheduled.set(false)
+            if (started) logger.log(Level.WARNING, "无法调度玩家干预回执重试", rejected)
         }
     }
 
