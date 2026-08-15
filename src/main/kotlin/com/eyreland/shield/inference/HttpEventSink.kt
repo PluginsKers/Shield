@@ -95,7 +95,8 @@ class HttpEventSink(
             )
         }
         logger.info(
-            "Shield 事件 sink 已启动：endpoint=$endpoint，gray=${config.rolloutPercent}%," +
+            "Shield 事件 sink 已启动：endpoint=$endpoint，schema=${config.schemaVersion}," +
+                " gray=${config.rolloutPercent}%," +
                 " batch=${config.batchSize}，spool<=${config.spoolMaxBytes} bytes/${config.spoolTtlMs} ms",
         )
     }
@@ -109,6 +110,17 @@ class HttpEventSink(
         }
         serverVersion.set(sample.serverVersion)
         val accepted = queue.offer(OutboundRecord.Event(sample))
+        if (!accepted) queueDropped.incrementAndGet()
+        return accepted
+    }
+
+    override fun enqueueTelemetry(telemetry: CollectionTelemetry): Boolean {
+        if (config.schemaVersion != "shield.events.v2") return false
+        if (!started) {
+            queueDropped.incrementAndGet()
+            return false
+        }
+        val accepted = queue.offer(OutboundRecord.Telemetry(telemetry))
         if (!accepted) queueDropped.incrementAndGet()
         return accepted
     }
@@ -206,6 +218,7 @@ class HttpEventSink(
             serverId = serverId,
             proxyMode = proxyMode,
             serverVersion = serverVersion.get(),
+            schemaVersion = config.schemaVersion,
             nowMs = clock.millis(),
         )
         val oversized = encoded.transmittedBody.size > config.maxCompressedBatchBytes ||

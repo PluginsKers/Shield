@@ -53,7 +53,7 @@ class ShieldCommandViewTest {
     }
 
     @Test
-    fun `healthy status is one conclusion line without implementation details`() {
+    fun `healthy status reports transport and collection coverage`() {
         val lines = ShieldCommandView.status(
             captureEnabled = true,
             decodeFailures = 0,
@@ -65,12 +65,14 @@ class ShieldCommandViewTest {
             listOf(
                 "§aShield 正常§7。已发送 §f1,234§7 批、§f56,789§7 个事件，" +
                     "待发送 §f2§7 批；内存中还有 §f3§7 条记录。",
+                "§7采集覆盖：在线 §f0§7，符合条件 §f0§7，已采集 §f0§7；" +
+                    "灰度过滤 §f0§7，玩家过滤 §f0§7，节流 §f0§7，不支持包型 §f0§7。",
             ),
             lines,
         )
-        assertFalse(lines.single().contains("HTTP"))
-        assertFalse(lines.single().contains("spool"))
-        assertFalse(lines.single().contains("TCN"))
+        assertFalse(lines.joinToString().contains("HTTP"))
+        assertFalse(lines.joinToString().contains("spool"))
+        assertFalse(lines.joinToString().contains("TCN"))
     }
 
     @Test
@@ -94,9 +96,9 @@ class ShieldCommandViewTest {
             queuedRecords = 0,
         )
 
-        assertEquals(2, lines.size)
+        assertEquals(3, lines.size)
         assertTrue(lines[0].startsWith("§eShield 同步中"))
-        assertEquals("§7检测到：最近一次 HTTP 状态为 §f429§7。", lines[1])
+        assertEquals("§7检测到：最近一次 HTTP 状态为 §f429§7。", lines[2])
     }
 
     @Test
@@ -116,13 +118,13 @@ class ShieldCommandViewTest {
             queuedRecords = 0,
         )
 
-        assertEquals(2, lines.size)
+        assertEquals(3, lines.size)
         assertTrue(lines[0].startsWith("§cShield 异常"))
         assertEquals(
             "§7检测到：解码失败 §f4§7 条；内存丢弃 §f3§7 条；" +
                 "磁盘丢弃 §f2§7 批、§f20§7 个事件；隔离 §f1§7 批；" +
                 "服务拒绝 §f6§7 次。",
-            lines[1],
+            lines[2],
         )
     }
 

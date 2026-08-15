@@ -16,7 +16,8 @@ class InferenceConfigTest {
             "https://api.i5res.com/shield/v1/events",
             config.endpoint.toString(),
         )
-        assertEquals(10.0, config.rolloutPercent)
+        assertEquals("shield.events.v2", config.schemaVersion)
+        assertEquals(100.0, config.rolloutPercent)
         assertEquals(500, config.batchSize)
     }
 

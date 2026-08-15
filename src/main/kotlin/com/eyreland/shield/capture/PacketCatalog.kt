@@ -72,7 +72,7 @@ object PacketCatalog {
         .filter { it.activity != ActivitySignal.NONE }
         .mapTo(linkedSetOf(), PacketDefinition::name)
 
-    fun decode(definition: PacketDefinition, packet: PacketContainer, includeRawFields: Boolean): DecodedPacket {
+    fun decode(definition: PacketDefinition, packet: PacketContainer): DecodedPacket {
         val reader = PacketReader(packet)
         val decoded = when (definition.name) {
             "POSITION" -> movement(reader, position = true, rotation = false)
@@ -157,10 +157,7 @@ object PacketCatalog {
             else -> DecodedPacket(action = definition.name, payload = reader.semanticScalars())
         }
 
-        if (!includeRawFields) return decoded
-        val raw = reader.rawFields()
-        if (raw.isEmpty()) return decoded
-        return decoded.copy(payload = LinkedHashMap<String, Any?>(decoded.payload).apply { put("raw_fields", raw) })
+        return decoded
     }
 
     private fun movement(reader: PacketReader, position: Boolean, rotation: Boolean): DecodedPacket =
@@ -345,23 +342,6 @@ private class PacketReader(private val packet: PacketContainer) {
         direction()?.let { result["direction"] = it }
         hand()?.let { result["hand"] = it }
         firstEnumName()?.let { result["enum"] = it }
-        return result
-    }
-
-    fun rawFields(): Map<String, Any?> {
-        val modifier = packet.modifier
-        val size = runCatching { modifier.size() }.getOrDefault(0)
-        val result = linkedMapOf<String, Any?>()
-        for (index in 0 until size) {
-            val value = read(modifier, index) ?: continue
-            val normalized = normalize(value, 0) ?: continue
-            val base = runCatching { modifier.getField(index).name }.getOrDefault("field_$index")
-                .ifBlank { "field_$index" }
-            var key = base
-            var suffix = 2
-            while (key in result) key = "${base}_${suffix++}"
-            result[key] = normalized
-        }
         return result
     }
 

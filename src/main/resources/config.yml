@@ -8,9 +8,11 @@ inference:
   hmac-secret: ""
   hmac-secret-env: "SHIELD_INFERENCE_HMAC_SECRET"
   allow-insecure-http: false
+  # v2 提供权威服务端语义、字段新鲜度、单调时序与采集证明。回滚旧推理端时可暂设 v1。
+  schema-version: "shield.events.v2"
 
-  # 玩家 UUID + 固定 salt 的稳定灰度。0 表示停采，100 表示全量。
-  rollout-percent: 10.0
+  # 生产默认全量采集。临时灰度必须能从周期遥测中审计。
+  rollout-percent: 100.0
   rollout-salt: "shield-gray-v1"
 
   # 捕获线程只做非阻塞 offer；I/O 单线程批量 gzip 后发送。
@@ -39,6 +41,9 @@ capture:
   proxy-mode: "velocity"
   # 无实质移动/动作超过该时长后停止发送；0 表示关闭挂机过滤。
   afk-timeout-ms: 180000
+  # 低频权威状态心跳与采集证明，20 tick = 1 秒。
+  heartbeat-interval-ticks: 100
+  telemetry-interval-ticks: 100
 
   # include 的每个非空维度都必须命中；exclude 任一维度命中即拒绝。空列表表示不限制。
   # protocols 是 ProtocolLib 在后端连接上观测到的协议号。
@@ -60,7 +65,6 @@ capture:
   # 值可写 true，也可写规则段：
   #   min-interval-ms: 同一玩家同一 rate-limit-group 的最小采样间隔
   #   include-actions 与 exclude-actions：解码后的动作白名单和黑名单
-  #   raw-fields: 额外保存受限的原始标量/record 字段，用于低频包的版本诊断
   packets:
     POSITION:
       min-interval-ms: 50
@@ -78,8 +82,7 @@ capture:
     # 26.1+ 的攻击独立为 ATTACK；1.21.11 等版本仍从 USE_ENTITY 解出 ATTACK。
     # 同时声明可让当前运行时自动选择受支持的形态。
     ATTACK: true
-    USE_ENTITY:
-      raw-fields: true
+    USE_ENTITY: true
     ARM_ANIMATION: true
 
     USE_ITEM: true
@@ -89,15 +92,13 @@ capture:
     ABILITIES: true
 
     # 旧版为扁平 float/boolean，现代版本为 Input record。
-    STEER_VEHICLE:
-      raw-fields: true
+    STEER_VEHICLE: true
     VEHICLE_MOVE:
       min-interval-ms: 50
     BOAT_MOVE: true
 
     HELD_ITEM_SLOT: true
-    WINDOW_CLICK:
-      raw-fields: true
+    WINDOW_CLICK: true
 
   # 目录还支持按需加入：CLOSE_WINDOW、SET_CREATIVE_SLOT、ENCHANT_ITEM、PICK_ITEM、
   # PICK_ITEM_FROM_BLOCK、CLIENT_COMMAND、TELEPORT_ACCEPT、PLAYER_LOADED、CLIENT_TICK_END、

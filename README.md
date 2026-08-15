@@ -9,9 +9,10 @@ Shield 在 Velocity 后端通过 ProtocolLib 捕获客户端入站包，转换�
 ```text
 ProtocolLib
   → 显式白名单、过滤与节流
+Paper 权威事件与低频玩家心跳
   → 玩家 UUID 稳定灰度
   → 有界内存队列
-  → gzip + HMAC 的 shield.events.v1
+  → gzip + HMAC 的 shield.events.v2
   → 有界磁盘 spool
   → HTTPS POST /shield/v1/events
   → 在线特征、评分、治理与人工复查
@@ -35,7 +36,7 @@ ProtocolLib
 4. 每个后端配置唯一的 `capture.server-id`，并启用 Velocity modern forwarding。
 5. 重启后执行 `/shield`，确认请求链路正常且没有异常摘要。
 
-默认接口为 `https://api.i5res.com/shield/v1/events`，默认按 UUID 稳定选择 10%
+默认接口为 `https://api.i5res.com/shield/v1/events`，默认采集 100% 符合过滤条件的
 玩家。`hmac-secret` 非空时优先；留空时从 `hmac-secret-env` 指定的环境变量读取。
 带真实密钥的部署配置不得提交到版本库。
 
@@ -50,8 +51,9 @@ inference:
   key-id: "gray-local-20260729"
   hmac-secret: "<与 Shield-Inference 一致的至少 32 字符密钥>"
   hmac-secret-env: "SHIELD_INFERENCE_HMAC_SECRET"
+  schema-version: "shield.events.v2"
 
-  rollout-percent: 10.0
+  rollout-percent: 100.0
   rollout-salt: "shield-gray-v1"
 
   batch-size: 500
@@ -90,6 +92,8 @@ capture:
   server-id: survival-1
   proxy-mode: velocity
   afk-timeout-ms: 180000
+  heartbeat-interval-ticks: 100
+  telemetry-interval-ticks: 100
   filters:
     include:
       worlds: [world]
@@ -106,29 +110,39 @@ capture:
     ATTACK: true
     USE_ENTITY:
       include-actions: [ATTACK, INTERACT, INTERACT_AT]
-      raw-fields: true
 ```
 
 - `include` 的所有非空维度都要命中；`exclude` 任一维度命中即拒绝。
 - 可用 `capture.filters.include.uuids` 做显式白名单，再叠加稳定百分比灰度。
 - 同一玩家、同一 `rate-limit-group` 共享最小采样间隔。
-- `include-actions` 无法求值时拒绝；`raw-fields` 仅展开有界简单结构。
+- `include-actions` 无法求值时拒绝；v2 不发送反射生成的 `raw_fields`。
 - AFK 到期后停止发送，但继续观察恢复活动所需的包。
 - 聊天和自定义载荷不采集。
+
+Paper 的 `PrePlayerAttackEntityEvent` 提供客户端攻击意图与目标；伤害、取消和
+击退由服务端事件补充。玩家心跳提供位置、速度、效果、属性、移动环境、Ping、
+服务端 tick、TPS 与 MSPT。它们都经过同一非阻塞有界队列，不在游戏线程做推理。
 
 所有线上事件标签固定为 `unlabeled`。真实复查结论只在治理服务写入和审计，
 不再由游戏服维护标签数据库。
 
 ## 接口契约
 
-主协议为 `shield.events.v1`：
+主协议为 `shield.events.v2`，滚动升级期间可把 `schema-version` 临时设为
+`shield.events.v1`：
 
 - 批次：`batch_id`、`sent_at_ms`、`server_id`、`proxy_mode`、
   `server_version`、`events`、`closed_sessions`。
 - 会话：`session_id`、单调 `session_sequence`、`session_age_ms`、
-  `since_previous_us`。
+  `since_previous_us` 与基于 `System.nanoTime()` 的 `session_monotonic_us`。
 - 玩家：UUID、名称、世界、模式和观测协议。
-- 事件：分类、包类型、动作、姿态及受限 payload。
+- 事件：来源、稳定事件类型、分类、包类型、动作、目标身份、姿态、字段新鲜度及
+  受限语义 payload。
+- 采集证明：每个周期独立统计在线、符合条件和实际采集 UUID 集合，并附带过滤、
+  节流、解码失败、队列/spool 丢弃及不支持包型累计计数。
+
+`shield.events.v1` 不包含上述 v2 字段和采集证明；它只用于旧推理端过渡，不能作为
+全量覆盖或权威攻击语义的验收证据。
 
 服务返回 `202` 后才删除 pending 文件。响应丢失时用相同 body 重试，服务端按
 `batch_id` 幂等。玩家退出、插件停止和 capture reload 都会发送会话关闭标记。
@@ -140,9 +154,9 @@ capture:
 /shield reload
 ```
 
-`/shield` 正常时只展示一行请求链路结论、累计发送量和待发量；仅在解码、
-丢弃、隔离或服务拒绝时追加一行异常摘要。旧 `/shield status` 保留为兼容
-别名，但不进入帮助或命令补全。
+`/shield` 展示请求链路结论以及当前遥测周期的在线、符合条件、已采集玩家数和
+过滤/丢弃口径；发生解码、丢弃、隔离或服务拒绝时再追加异常摘要。旧
+`/shield status` 保留为兼容别名，但不进入帮助或命令补全。
 
 `/shield reload` 只原子重载采集策略。接口、密钥、spool、server-id 或
 proxy-mode 等传输配置变更仍需重启服务器，命令反馈会明确提示这一边界。

@@ -62,6 +62,20 @@ class CaptureStateStoreTest {
         assertEquals(1, store.sample(next, 2_000, 2_000_000).sessionSequence)
     }
 
+    @Test
+    fun `session clock stays strictly monotonic when nano clock repeats or moves back`() {
+        val store = CaptureStateStore()
+        val context = context()
+
+        val first = store.sample(context, 1_000, 2_000_000)
+        val repeated = store.sample(context, 1_000, 2_000_000)
+        val backwards = store.sample(context, 1_000, 1_000_000)
+
+        assertEquals(0, first.sessionMonotonicUs)
+        assertEquals(1, repeated.sessionMonotonicUs)
+        assertEquals(2, backwards.sessionMonotonicUs)
+    }
+
     private fun context(
         world: String = "world",
         x: Double = 0.0,

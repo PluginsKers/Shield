@@ -25,6 +25,7 @@ data class InferenceConfig(
     val quarantineMaxBatches: Int,
     val maxCompressedBatchBytes: Int,
     val maxUncompressedBatchBytes: Int,
+    val schemaVersion: String,
     val rolloutPercent: Double,
     val rolloutSalt: String,
 ) {
@@ -68,7 +69,14 @@ data class InferenceConfig(
             val spoolDirectory = (section?.getString("spool-directory", "inference-spool")
                 ?: "inference-spool").trim()
             validateRelativeDirectory(spoolDirectory)
-            val rolloutPercent = section?.getDouble("rollout-percent", 10.0) ?: 10.0
+            val schemaVersion = (
+                section?.getString("schema-version", "shield.events.v2")
+                    ?: "shield.events.v2"
+                ).trim()
+            require(schemaVersion == "shield.events.v1" || schemaVersion == "shield.events.v2") {
+                "inference.schema-version 必须为 shield.events.v1 或 shield.events.v2"
+            }
+            val rolloutPercent = section?.getDouble("rollout-percent", 100.0) ?: 100.0
             require(rolloutPercent in 0.0..100.0) {
                 "inference.rollout-percent 必须在 0..100"
             }
@@ -120,6 +128,7 @@ data class InferenceConfig(
                     256 * 1024,
                     12 * 1024 * 1024,
                 ),
+                schemaVersion = schemaVersion,
                 rolloutPercent = rolloutPercent,
                 rolloutSalt = rolloutSalt,
             )

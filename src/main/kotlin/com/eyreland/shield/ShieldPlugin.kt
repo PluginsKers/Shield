@@ -1,6 +1,7 @@
 package com.eyreland.shield
 
 import com.eyreland.shield.capture.PacketCaptureService
+import com.eyreland.shield.capture.AuthorityCaptureService
 import com.eyreland.shield.capture.PlayerContextStore
 import com.eyreland.shield.command.ShieldCommand
 import com.eyreland.shield.config.CaptureConfig
@@ -22,6 +23,7 @@ class ShieldPlugin : JavaPlugin() {
 
     private var sink: EventSink? = null
     private var capture: PacketCaptureService? = null
+    private var authority: AuthorityCaptureService? = null
     private var contexts: PlayerContextStore? = null
     private var ioExecutor: ScheduledExecutorService? = null
     private var activeInferenceConfig: InferenceConfig? = null
@@ -112,13 +114,21 @@ class ShieldPlugin : JavaPlugin() {
         if (captureConfig.usedLegacyPacketDefaults) {
             logger.warning("旧配置缺少 capture.packets，暂用固定兼容白名单；请按新版 config.yml 显式配置")
         }
-        return PacketCaptureService(
+        val packetCapture = PacketCaptureService(
             this,
             captureConfig,
             contextStore,
             eventSink,
             logger,
         ).also { it.start() }
+        if (packetCapture.enabled) {
+            authority = AuthorityCaptureService(
+                this,
+                captureConfig,
+                packetCapture,
+            ).also { it.start() }
+        }
+        return packetCapture
     }
 
     /** 传输和 spool 参数需重启；reload 只原子替换捕获策略并切换会话。 */
@@ -140,12 +150,15 @@ class ShieldPlugin : JavaPlugin() {
         val contextStore = contexts ?: throw IllegalStateException("玩家上下文未启动")
         val eventSink = sink ?: throw IllegalStateException("事件 sink 未启动")
 
+        authority?.stop()
+        authority = null
         capture?.stop()
         contextStore.rotateSessions()
         capture = newCapture(contextStore, eventSink, newCaptureConfig)
     }
 
     override fun onDisable() {
+        authority?.stop()
         capture?.stop()
         contexts?.stop()
         sink?.stop()
@@ -161,6 +174,7 @@ class ShieldPlugin : JavaPlugin() {
         }
 
         capture = null
+        authority = null
         contexts = null
         sink = null
         ioExecutor = null

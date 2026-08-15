@@ -9,7 +9,6 @@ data class PacketRule(
     val rateLimitGroup: String,
     val includeActions: Set<String> = emptySet(),
     val excludeActions: Set<String> = emptySet(),
-    val includeRawFields: Boolean = false,
 ) {
     fun allowsAction(action: String?): Boolean {
         val normalized = action?.uppercase()
@@ -71,6 +70,8 @@ data class CaptureConfig(
     val afkTimeoutMs: Long,
     val serverId: String,
     val proxyMode: String,
+    val heartbeatIntervalTicks: Long,
+    val telemetryIntervalTicks: Long,
     val filter: CaptureFilter,
     val packets: Map<String, PacketRule>,
     val usedLegacyPacketDefaults: Boolean,
@@ -83,12 +84,28 @@ data class CaptureConfig(
             require(serverId.isNotEmpty()) { "capture.server-id 不能为空" }
             val proxyMode = (c?.getString("proxy-mode", "velocity") ?: "velocity").trim().lowercase()
             require(proxyMode.isNotEmpty()) { "capture.proxy-mode 不能为空" }
+            val heartbeatIntervalTicks = (
+                c?.getLong("heartbeat-interval-ticks", 100L) ?: 100L
+                ).coerceIn(20L, 1_200L)
+            val telemetryIntervalTicks = (
+                c?.getLong("telemetry-interval-ticks", 100L) ?: 100L
+                ).coerceIn(20L, 1_200L)
 
             val packetSection = c?.getConfigurationSection("packets")
             val usedLegacyDefaults = packetSection == null
             val packets = packetSection?.let(::parsePackets) ?: defaultPacketRules()
             val filter = parseFilter(c?.getConfigurationSection("filters"))
-            return CaptureConfig(enabled, afkTimeout, serverId, proxyMode, filter, packets, usedLegacyDefaults)
+            return CaptureConfig(
+                enabled,
+                afkTimeout,
+                serverId,
+                proxyMode,
+                heartbeatIntervalTicks,
+                telemetryIntervalTicks,
+                filter,
+                packets,
+                usedLegacyDefaults,
+            )
         }
 
         private fun parsePackets(section: ConfigurationSection): Map<String, PacketRule> {
@@ -116,7 +133,6 @@ data class CaptureConfig(
                     rateLimitGroup = group,
                     includeActions = includeActions,
                     excludeActions = excludeActions,
-                    includeRawFields = ruleSection.getBoolean("raw-fields", false),
                 )
             }
             return result
@@ -172,18 +188,18 @@ data class CaptureConfig(
             "LOOK" to movementRule(),
             "GROUND" to movementRule(),
             "ATTACK" to PacketRule(rateLimitGroup = "attack"),
-            "USE_ENTITY" to PacketRule(rateLimitGroup = "use_entity", includeRawFields = true),
+            "USE_ENTITY" to PacketRule(rateLimitGroup = "use_entity"),
             "ARM_ANIMATION" to PacketRule(rateLimitGroup = "arm_animation"),
             "USE_ITEM" to PacketRule(rateLimitGroup = "use_item"),
             "USE_ITEM_ON" to PacketRule(rateLimitGroup = "use_item_on"),
             "BLOCK_DIG" to PacketRule(rateLimitGroup = "block_dig"),
             "ENTITY_ACTION" to PacketRule(rateLimitGroup = "entity_action"),
             "ABILITIES" to PacketRule(rateLimitGroup = "abilities"),
-            "STEER_VEHICLE" to PacketRule(rateLimitGroup = "vehicle_input", includeRawFields = true),
+            "STEER_VEHICLE" to PacketRule(rateLimitGroup = "vehicle_input"),
             "VEHICLE_MOVE" to PacketRule(minIntervalMs = 50, rateLimitGroup = "vehicle_move"),
             "BOAT_MOVE" to PacketRule(rateLimitGroup = "boat_input"),
             "HELD_ITEM_SLOT" to PacketRule(rateLimitGroup = "held_item_slot"),
-            "WINDOW_CLICK" to PacketRule(rateLimitGroup = "window_click", includeRawFields = true),
+            "WINDOW_CLICK" to PacketRule(rateLimitGroup = "window_click"),
         )
 
         private fun movementRule() = PacketRule(minIntervalMs = 50, rateLimitGroup = "movement")

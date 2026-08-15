@@ -81,7 +81,8 @@ class HttpEventSinkTest {
             val json = GZIPInputStream(
                 ByteArrayInputStream(requests[0].body),
             ).use { it.readAllBytes().decodeToString() }
-            assertTrue(json.contains("\"schema_version\":\"shield.events.v1\""))
+            assertTrue(json.contains("\"schema_version\":\"shield.events.v2\""))
+            assertTrue(json.contains("\"session_monotonic_us\":0"))
 
             await(Duration.ofSeconds(5)) { sink.stats().pendingBatches == 0 }
             assertEquals(1, sink.stats().sentBatches)
@@ -260,6 +261,43 @@ class HttpEventSinkTest {
         }
     }
 
+    @Test
+    fun `capture offer remains bounded under sustained load`() {
+        val unavailablePort = ServerSocket(0).use { it.localPort }
+        val executor = Executors.newSingleThreadScheduledExecutor()
+        val workerStarted = CountDownLatch(1)
+        val releaseWorker = CountDownLatch(1)
+        executor.submit {
+            workerStarted.countDown()
+            releaseWorker.await()
+        }
+        assertTrue(workerStarted.await(2, TimeUnit.SECONDS))
+        val sink = HttpEventSink(
+            testConfig(
+                URI("http://127.0.0.1:$unavailablePort/v1/events"),
+            ).copy(queueCapacity = 8),
+            "survival-test",
+            "velocity",
+            temporaryDirectory,
+            executor,
+            Logger.getAnonymousLogger(),
+        )
+        try {
+            sink.start()
+            val accepted = (1..20_000).count { index ->
+                sink.enqueue(sample().copy(sessionSequence = index.toLong()))
+            }
+
+            assertEquals(8, accepted)
+            assertEquals(8, sink.queued())
+            assertEquals(19_992, sink.stats().queueDropped)
+        } finally {
+            releaseWorker.countDown()
+            sink.stop()
+            executor.shutdownNow()
+        }
+    }
+
     private fun testConfig(endpoint: URI) = InferenceConfig(
         enabled = true,
         endpoint = endpoint,
@@ -280,6 +318,7 @@ class HttpEventSinkTest {
         quarantineMaxBatches = 10,
         maxCompressedBatchBytes = 1_500_000,
         maxUncompressedBatchBytes = 10 * 1024 * 1024,
+        schemaVersion = "shield.events.v2",
         rolloutPercent = 100.0,
         rolloutSalt = "test",
     )

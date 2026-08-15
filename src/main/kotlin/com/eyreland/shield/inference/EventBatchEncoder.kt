@@ -9,6 +9,7 @@ import java.util.zip.GZIPOutputStream
 internal sealed interface OutboundRecord {
     data class Event(val sample: PacketSample) : OutboundRecord
     data class SessionClosed(val sessionId: UUID) : OutboundRecord
+    data class Telemetry(val value: CollectionTelemetry) : OutboundRecord
 }
 
 internal data class EncodedBatch(
@@ -17,6 +18,7 @@ internal data class EncodedBatch(
     val uncompressedBytes: Int,
     val eventCount: Int,
     val closedSessionCount: Int,
+    val telemetryCount: Int,
 )
 
 internal object EventBatchEncoder {
@@ -25,21 +27,26 @@ internal object EventBatchEncoder {
         serverId: String,
         proxyMode: String,
         serverVersion: String,
+        schemaVersion: String,
         nowMs: Long,
         batchId: UUID = UUID.randomUUID(),
     ): EncodedBatch {
         require(records.isNotEmpty())
         val events = ArrayList<Map<String, Any?>>()
         val closedSessions = linkedSetOf<String>()
+        val telemetry = ArrayList<Map<String, Any?>>()
         for (record in records) {
             when (record) {
-                is OutboundRecord.Event -> events += eventMap(record.sample)
+                is OutboundRecord.Event -> events += eventMap(record.sample, schemaVersion)
                 is OutboundRecord.SessionClosed -> closedSessions += record.sessionId.toString()
+                is OutboundRecord.Telemetry -> if (schemaVersion == "shield.events.v2") {
+                    telemetry += telemetryMap(record.value)
+                }
             }
         }
         val body = JsonEncoder.encode(
             linkedMapOf(
-                "schema_version" to "shield.events.v1",
+                "schema_version" to schemaVersion,
                 "batch_id" to batchId.toString(),
                 "sent_at_ms" to nowMs,
                 "server_id" to serverId,
@@ -47,7 +54,11 @@ internal object EventBatchEncoder {
                 "server_version" to serverVersion,
                 "events" to events,
                 "closed_sessions" to closedSessions,
-            ),
+            ).apply {
+                if (schemaVersion == "shield.events.v2") {
+                    put("collection_telemetry", telemetry)
+                }
+            },
         ).toByteArray(StandardCharsets.UTF_8)
         return EncodedBatch(
             batchId = batchId,
@@ -55,10 +66,11 @@ internal object EventBatchEncoder {
             uncompressedBytes = body.size,
             eventCount = events.size,
             closedSessionCount = closedSessions.size,
+            telemetryCount = telemetry.size,
         )
     }
 
-    private fun eventMap(sample: PacketSample): Map<String, Any?> = linkedMapOf(
+    private fun eventMap(sample: PacketSample, schemaVersion: String): Map<String, Any?> = linkedMapOf(
         "captured_at_ms" to sample.capturedAtMs,
         "session_id" to sample.sessionId.toString(),
         "session_sequence" to sample.sessionSequence,
@@ -93,6 +105,38 @@ internal object EventBatchEncoder {
         "horizontal_speed_bps" to sample.horizontalSpeedBps,
         "movement_changed" to sample.movementChanged,
         "payload" to sample.payload,
+    ).apply {
+        if (schemaVersion == "shield.events.v2") {
+            put("session_monotonic_us", sample.sessionMonotonicUs)
+            put("source", sample.source)
+            put("event_type", sample.eventType)
+            put("target_entity_uuid", sample.targetEntityUuid?.toString())
+            put("target_entity_type", sample.targetEntityType)
+            put("position_updated", sample.positionUpdated)
+            put("rotation_updated", sample.rotationUpdated)
+            put("ground_updated", sample.groundUpdated)
+        }
+    }
+
+    private fun telemetryMap(value: CollectionTelemetry): Map<String, Any?> = linkedMapOf(
+        "captured_at_ms" to value.capturedAtMs,
+        "process_uptime_ms" to value.processUptimeMs,
+        "server_tick" to value.serverTick,
+        "tps_1m" to value.tps1m,
+        "mspt" to value.mspt,
+        "online_player_uuids" to value.onlinePlayerUuids.map(UUID::toString),
+        "eligible_player_uuids" to value.eligiblePlayerUuids.map(UUID::toString),
+        "captured_player_uuids" to value.capturedPlayerUuids.map(UUID::toString),
+        "gray_filtered_events" to value.grayFilteredEvents,
+        "player_filtered_events" to value.playerFilteredEvents,
+        "action_filtered_events" to value.actionFilteredEvents,
+        "afk_filtered_events" to value.afkFilteredEvents,
+        "throttled_events" to value.throttledEvents,
+        "decode_failed_events" to value.decodeFailedEvents,
+        "queue_dropped_records" to value.queueDroppedRecords,
+        "spool_dropped_batches" to value.spoolDroppedBatches,
+        "spool_dropped_events" to value.spoolDroppedEvents,
+        "unsupported_packet_names" to value.unsupportedPacketNames,
     )
 
     private fun gzip(body: ByteArray): ByteArray {
