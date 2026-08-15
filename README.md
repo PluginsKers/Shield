@@ -2,7 +2,8 @@
 
 Shield 在 Velocity 后端通过 ProtocolLib 捕获客户端入站包，转换为稳定事件后，
 异步发送到独立的 Shield-Inference 服务。插件不保存原始事件到 PostgreSQL，
-不等待推理结果，也不执行踢出或封禁。
+不在捕获线程等待推理。I/O 线程可接收短期玩家干预指令：默认只发送一次低频
+警告，踢出必须在推理端和本地配置中分别显式开启；插件不执行封禁。
 
 ## 链路
 
@@ -16,6 +17,7 @@ Paper 权威事件与低频玩家心跳
   → 有界磁盘 spool
   → HTTPS POST /shield/v1/events
   → 在线特征、评分、治理与人工复查
+  → 有界 ACK 指令、本地幂等台账与执行回执
 ```
 
 捕获线程只执行非阻塞 `offer`。压缩、磁盘和网络都在单独 I/O 线程执行。
@@ -78,10 +80,38 @@ inference:
   不做忙重试。
 - pending 和隔离区共用容量上限与 TTL，磁盘占用有明确上界。
 - spool 文件权限在支持 POSIX 权限的平台设为仅服务账号可读写。
-- `reload` 只更新捕获策略；接口、密钥、spool、灰度比例和服务身份变更需重启。
+- `reload` 更新捕获与玩家干预策略；接口、密钥、spool、灰度比例和服务身份变更需重启。
 
 HMAC 只提供身份与完整性。生产接口必须使用 HTTPS；只有显式开启
 `allow-insecure-http` 或回环地址才允许 HTTP。
+
+## 玩家干预配置
+
+```yaml
+interventions:
+  enabled: true
+  ledger-retention-hours: 168
+  warning:
+    enabled: true
+    cooldown-seconds: 1800
+    prefix: "[!]"
+    message: "你当前的行为存在异常"
+  kick:
+    enabled: false
+    minimum-prior-warnings: 1
+    cooldown-seconds: 3600
+    message: "你当前的行为持续异常"
+```
+
+警告显示为红色 `[!]`，后接白色 `你当前的行为存在异常`。第一次干预只能是警告，
+不会处罚；30 分钟本地冷却与推理端 15 分钟观察窗共同限制提示频率。踢出默认关闭，
+即使开启也会拒绝没有本地成功警告记录的指令。
+
+每个指令先原子写入 `intervention-ledger.properties` 再调度到玩家所属区域线程。
+台账保存待执行状态、结果与冷却信息；相同 `directive_id` 在 HTTP 重试或服务器重启
+后只会执行一次。`applied`、关闭、冷却、离线、过期等结果通过 v2 有界队列回传；
+回执写入磁盘 spool 后才从待重试台账移除。接口故障、响应格式错误或回执拥塞都
+不会阻塞游戏线程。
 
 ## 捕获配置
 
@@ -140,12 +170,15 @@ Paper 的 `PrePlayerAttackEntityEvent` 提供客户端攻击意图与目标；�
   受限语义 payload。
 - 采集证明：每个周期独立统计在线、符合条件和实际采集 UUID 集合，并附带过滤、
   节流、解码失败、队列/spool 丢弃及不支持包型累计计数。
+- 干预回执：`directive_id`、玩家 UUID、`warn/kick`、处理结果与处理时间。
 
 `shield.events.v1` 不包含上述 v2 字段和采集证明；它只用于旧推理端过渡，不能作为
 全量覆盖或权威攻击语义的验收证据。
 
-服务返回 `202` 后才删除 pending 文件。响应丢失时用相同 body 重试，服务端按
-`batch_id` 幂等。玩家退出、插件停止和 capture reload 都会发送会话关闭标记。
+服务返回 `202` 后，Shield 会先验证不超过 1 MiB、1,000 条指令的 ACK 并把新指令写入本地
+台账，再删除 pending 文件。响应丢失时用相同 body 重试，服务端按 `batch_id`
+返回相同指令；本地再按 `directive_id` 去重。玩家退出、插件停止和 capture reload
+都会发送会话关闭标记。
 
 ## 运维
 
@@ -158,8 +191,10 @@ Paper 的 `PrePlayerAttackEntityEvent` 提供客户端攻击意图与目标；�
 过滤/丢弃口径；发生解码、丢弃、隔离或服务拒绝时再追加异常摘要。旧
 `/shield status` 保留为兼容别名，但不进入帮助或命令补全。
 
-`/shield reload` 只原子重载采集策略。接口、密钥、spool、server-id 或
+`/shield reload` 原子重载采集策略与 `interventions`。接口、密钥、spool、server-id 或
 proxy-mode 等传输配置变更仍需重启服务器，命令反馈会明确提示这一边界。
 
-当前治理服务处于 shadow，模型清单也禁止线上复查裁决。Shield 永远不根据
-接口故障或模型分数处罚玩家。
+默认治理 cohort 处于 shadow，当前候选模型也没有线上校准授权，因此不会产生
+玩家指令。只有已授权模型、已校准且无漂移的 cohort 才可能产生低频警告；接口
+故障永远不会触发玩家动作。踢出还要求模型制品、推理端建议开关和上述本地开关
+同时授权；当前候选模型的自动处置硬锁不能被配置覆盖。

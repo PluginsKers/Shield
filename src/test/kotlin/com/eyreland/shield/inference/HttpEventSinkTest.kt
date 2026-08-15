@@ -7,8 +7,10 @@ import java.io.ByteArrayInputStream
 import java.net.InetSocketAddress
 import java.net.URI
 import java.net.ServerSocket
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
+import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -24,6 +26,86 @@ import kotlin.test.assertTrue
 class HttpEventSinkTest {
     @TempDir
     lateinit var temporaryDirectory: Path
+
+    @Test
+    fun `receipt is acknowledged only after durable spool write`() {
+        val persisted = CountDownLatch(1)
+        val receiptId = "intervention-durable"
+        val unavailablePort = ServerSocket(0).use { it.localPort }
+        val executor = Executors.newSingleThreadScheduledExecutor()
+        val sink = HttpEventSink(
+            config = testConfig(
+                URI("http://127.0.0.1:$unavailablePort/v1/events"),
+            ).copy(retryMaxMs = 5_000),
+            serverId = "survival-test",
+            proxyMode = "velocity",
+            spoolRoot = temporaryDirectory,
+            executor = executor,
+            logger = Logger.getAnonymousLogger(),
+            persistedReceiptHandler = { ids ->
+                assertEquals(listOf(receiptId), ids)
+                Files.list(temporaryDirectory.resolve("pending")).use { files ->
+                    assertTrue(files.findAny().isPresent)
+                }
+                persisted.countDown()
+            },
+        )
+        val receipt = InterventionReceipt(
+            directiveId = receiptId,
+            playerUuid = UUID.fromString("00000000-0000-0000-0000-000000000010"),
+            kind = InterventionKind.WARN,
+            outcome = InterventionOutcome.APPLIED,
+            handledAtMs = 1_900_000_000_000,
+        )
+        try {
+            sink.start()
+            assertTrue(sink.enqueueInterventionReceipt(receipt))
+            assertTrue(persisted.await(5, TimeUnit.SECONDS))
+        } finally {
+            sink.stop()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `successful ack is handled before pending batch is deleted`() {
+        val handled = CountDownLatch(1)
+        val response = """
+            {"schema_version":"shield.events.ack.v2","player_interventions":[]}
+        """.trimIndent().encodeToByteArray()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/v1/events") { exchange ->
+            exchange.requestBody.close()
+            exchange.sendResponseHeaders(202, response.size.toLong())
+            exchange.responseBody.use { it.write(response) }
+        }
+        server.start()
+        val executor = Executors.newSingleThreadScheduledExecutor()
+        val sink = HttpEventSink(
+            config = testConfig(URI("http://127.0.0.1:${server.address.port}/v1/events")),
+            serverId = "survival-test",
+            proxyMode = "velocity",
+            spoolRoot = temporaryDirectory,
+            executor = executor,
+            logger = Logger.getAnonymousLogger(),
+            responseHandler = { _, body ->
+                assertTrue(body.contentEquals(response))
+                handled.countDown()
+            },
+        )
+        try {
+            sink.start()
+            assertTrue(sink.enqueue(sample()))
+            assertTrue(handled.await(5, TimeUnit.SECONDS))
+            await(Duration.ofSeconds(5)) { sink.stats().sentBatches == 1L }
+            assertEquals(0, sink.stats().pendingBatches)
+            assertEquals(1, sink.stats().sentBatches)
+        } finally {
+            sink.stop()
+            executor.shutdownNow()
+            server.stop(0)
+        }
+    }
 
     @Test
     fun `retries same batch body with a fresh nonce`() {

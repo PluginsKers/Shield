@@ -10,6 +10,7 @@ internal sealed interface OutboundRecord {
     data class Event(val sample: PacketSample) : OutboundRecord
     data class SessionClosed(val sessionId: UUID) : OutboundRecord
     data class Telemetry(val value: CollectionTelemetry) : OutboundRecord
+    data class InterventionHandled(val receipt: InterventionReceipt) : OutboundRecord
 }
 
 internal data class EncodedBatch(
@@ -19,6 +20,8 @@ internal data class EncodedBatch(
     val eventCount: Int,
     val closedSessionCount: Int,
     val telemetryCount: Int,
+    val interventionReceiptCount: Int,
+    val interventionReceiptIds: List<String>,
 )
 
 internal object EventBatchEncoder {
@@ -35,12 +38,16 @@ internal object EventBatchEncoder {
         val events = ArrayList<Map<String, Any?>>()
         val closedSessions = linkedSetOf<String>()
         val telemetry = ArrayList<Map<String, Any?>>()
+        val interventionReceipts = ArrayList<Map<String, Any?>>()
         for (record in records) {
             when (record) {
                 is OutboundRecord.Event -> events += eventMap(record.sample, schemaVersion)
                 is OutboundRecord.SessionClosed -> closedSessions += record.sessionId.toString()
                 is OutboundRecord.Telemetry -> if (schemaVersion == "shield.events.v2") {
                     telemetry += telemetryMap(record.value)
+                }
+                is OutboundRecord.InterventionHandled -> if (schemaVersion == "shield.events.v2") {
+                    interventionReceipts += receiptMap(record.receipt)
                 }
             }
         }
@@ -57,6 +64,7 @@ internal object EventBatchEncoder {
             ).apply {
                 if (schemaVersion == "shield.events.v2") {
                     put("collection_telemetry", telemetry)
+                    put("intervention_receipts", interventionReceipts)
                 }
             },
         ).toByteArray(StandardCharsets.UTF_8)
@@ -67,6 +75,10 @@ internal object EventBatchEncoder {
             eventCount = events.size,
             closedSessionCount = closedSessions.size,
             telemetryCount = telemetry.size,
+            interventionReceiptCount = interventionReceipts.size,
+            interventionReceiptIds = interventionReceipts.map {
+                requireNotNull(it["directive_id"] as? String)
+            },
         )
     }
 
@@ -137,6 +149,14 @@ internal object EventBatchEncoder {
         "spool_dropped_batches" to value.spoolDroppedBatches,
         "spool_dropped_events" to value.spoolDroppedEvents,
         "unsupported_packet_names" to value.unsupportedPacketNames,
+    )
+
+    private fun receiptMap(value: InterventionReceipt): Map<String, Any?> = linkedMapOf(
+        "directive_id" to value.directiveId,
+        "player_uuid" to value.playerUuid.toString(),
+        "kind" to value.kind.wireName,
+        "outcome" to value.outcome.wireName,
+        "handled_at_ms" to value.handledAtMs,
     )
 
     private fun gzip(body: ByteArray): ByteArray {

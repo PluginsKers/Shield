@@ -69,6 +69,15 @@ class EventBatchEncoderTest {
                         unsupportedPacketNames = listOf("ATTACK"),
                     ),
                 ),
+                OutboundRecord.InterventionHandled(
+                    InterventionReceipt(
+                        directiveId = "intervention-test",
+                        playerUuid = playerId,
+                        kind = InterventionKind.WARN,
+                        outcome = InterventionOutcome.APPLIED,
+                        handledAtMs = 1_785_300_000_500,
+                    ),
+                ),
             ),
             serverId = "survival-test",
             proxyMode = "velocity",
@@ -81,11 +90,15 @@ class EventBatchEncoderTest {
         ).use { it.readAllBytes().decodeToString() }
 
         assertEquals(1, encoded.telemetryCount)
+        assertEquals(1, encoded.interventionReceiptCount)
+        assertEquals(listOf("intervention-test"), encoded.interventionReceiptIds)
         assertTrue(json.contains("\"schema_version\":\"shield.events.v2\""))
         assertTrue(json.contains("\"session_monotonic_us\":0"))
         assertTrue(json.contains("\"event_type\":\"movement\""))
         assertTrue(json.contains("\"position_updated\":true"))
         assertTrue(json.contains("\"eligible_player_uuids\":[\"$playerId\"]"))
+        assertTrue(json.contains("\"intervention_receipts\":[{"))
+        assertTrue(json.contains("\"outcome\":\"applied\""))
         assertFalse(json.contains("raw_fields"))
     }
 }

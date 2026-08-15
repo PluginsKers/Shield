@@ -34,6 +34,22 @@ inference:
   max-compressed-batch-bytes: 1500000
   max-uncompressed-batch-bytes: 10485760
 
+# 推理端先观察 15 个 60 秒桶才可能下发一次警告；本地冷却进一步避免重复打扰。
+# 警告不处罚。踢出默认关闭，并要求本地至少成功警告过一次。
+interventions:
+  enabled: true
+  ledger-retention-hours: 168
+  warning:
+    enabled: true
+    cooldown-seconds: 1800
+    prefix: "[!]"
+    message: "你当前的行为存在异常"
+  kick:
+    enabled: false
+    minimum-prior-warnings: 1
+    cooldown-seconds: 3600
+    message: "你当前的行为持续异常"
+
 capture:
   enabled: true
   # Velocity 多后端部署时必须为每个后端填写稳定且唯一的名称。
