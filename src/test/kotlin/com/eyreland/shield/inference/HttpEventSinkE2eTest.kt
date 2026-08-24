@@ -55,8 +55,6 @@ class HttpEventSinkE2eTest {
             maxCompressedBatchBytes = 1_500_000,
             maxUncompressedBatchBytes = 10 * 1024 * 1024,
             schemaVersion = "shield.events.v2",
-            rolloutPercent = 100.0,
-            rolloutSalt = "e2e",
         )
         val executor = Executors.newSingleThreadScheduledExecutor()
         val sink = HttpEventSink(

@@ -51,7 +51,6 @@ class HttpEventSink(
     override val endpoint: URI = config.endpoint
 
     private val queue = ArrayBlockingQueue<OutboundRecord>(config.queueCapacity)
-    private val rollout = StableRollout(config.rolloutPercent, config.rolloutSalt)
     private val root = spoolRoot.toAbsolutePath().normalize()
     private val pendingDirectory = root.resolve("pending")
     private val quarantineDirectory = root.resolve("quarantine")
@@ -98,12 +97,9 @@ class HttpEventSink(
         }
         logger.info(
             "Shield 事件 sink 已启动：endpoint=$endpoint，schema=${config.schemaVersion}," +
-                " gray=${config.rolloutPercent}%," +
                 " batch=${config.batchSize}，spool<=${config.spoolMaxBytes} bytes/${config.spoolTtlMs} ms",
         )
     }
-
-    override fun accepts(uuid: UUID): Boolean = config.enabled && rollout.includes(uuid)
 
     override fun enqueue(sample: PacketSample): Boolean {
         if (!started) {

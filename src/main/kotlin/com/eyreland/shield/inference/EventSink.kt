@@ -25,31 +25,15 @@ data class EventSinkStats(
 
 data class CollectionTelemetry(
     val capturedAtMs: Long,
-    val processUptimeMs: Long,
-    val serverTick: Long,
-    val tps1m: Double,
-    val mspt: Double,
-    val onlinePlayerUuids: List<UUID>,
-    val eligiblePlayerUuids: List<UUID>,
-    val capturedPlayerUuids: List<UUID>,
-    val grayFilteredEvents: Long,
-    val playerFilteredEvents: Long,
-    val actionFilteredEvents: Long,
-    val afkFilteredEvents: Long,
-    val throttledEvents: Long,
-    val decodeFailedEvents: Long,
-    val queueDroppedRecords: Long,
-    val spoolDroppedBatches: Long,
-    val spoolDroppedEvents: Long,
-    val unsupportedPacketNames: List<String>,
+    val eligiblePlayerCount: Int,
+    val missingPlayerUuids: List<UUID>,
+    val deliveryLossObserved: Boolean,
 )
 
 interface EventSink {
     val endpoint: URI
 
     fun start()
-
-    fun accepts(uuid: UUID): Boolean
 
     /** 捕获线程只调用非阻塞 offer。 */
     fun enqueue(sample: PacketSample): Boolean

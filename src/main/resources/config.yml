@@ -3,17 +3,13 @@
 inference:
   enabled: true
   endpoint: "https://api.i5res.com/shield/v1/events"
-  key-id: "gray-local-20260729"
+  key-id: "shield-events-1"
   # 可直接填写 hmac-secret；非空时优先于环境变量。发布模板不得包含真实密钥。
   hmac-secret: ""
   hmac-secret-env: "SHIELD_INFERENCE_HMAC_SECRET"
   allow-insecure-http: false
   # v2 提供权威服务端语义、字段新鲜度、单调时序与采集证明。回滚旧推理端时可暂设 v1。
   schema-version: "shield.events.v2"
-
-  # 生产默认全量采集。临时灰度必须能从周期遥测中审计。
-  rollout-percent: 100.0
-  rollout-salt: "shield-gray-v1"
 
   # 捕获线程只做非阻塞 offer；I/O 单线程批量 gzip 后发送。
   batch-size: 500

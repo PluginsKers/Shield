@@ -26,8 +26,6 @@ data class InferenceConfig(
     val maxCompressedBatchBytes: Int,
     val maxUncompressedBatchBytes: Int,
     val schemaVersion: String,
-    val rolloutPercent: Double,
-    val rolloutSalt: String,
 ) {
     companion object {
         private const val DEFAULT_ENDPOINT = "https://api.i5res.com/shield/v1/events"
@@ -44,8 +42,8 @@ data class InferenceConfig(
                 section?.getString("endpoint", DEFAULT_ENDPOINT) ?: DEFAULT_ENDPOINT,
                 section?.getBoolean("allow-insecure-http", false) ?: false,
             )
-            val keyId = (section?.getString("key-id", "gray-local-20260729")
-                ?: "gray-local-20260729").trim()
+            val keyId = (section?.getString("key-id", "shield-events-1")
+                ?: "shield-events-1").trim()
             require(keyId.isNotEmpty() && keyId.length <= 128) {
                 "inference.key-id 必须为 1..128 字符"
             }
@@ -76,14 +74,6 @@ data class InferenceConfig(
             require(schemaVersion == "shield.events.v1" || schemaVersion == "shield.events.v2") {
                 "inference.schema-version 必须为 shield.events.v1 或 shield.events.v2"
             }
-            val rolloutPercent = section?.getDouble("rollout-percent", 100.0) ?: 100.0
-            require(rolloutPercent in 0.0..100.0) {
-                "inference.rollout-percent 必须在 0..100"
-            }
-            val rolloutSalt = (section?.getString("rollout-salt", "shield-gray-v1")
-                ?: "shield-gray-v1").trim()
-            require(rolloutSalt.isNotEmpty()) { "inference.rollout-salt 不能为空" }
-
             return InferenceConfig(
                 enabled = enabled,
                 endpoint = endpoint,
@@ -129,8 +119,6 @@ data class InferenceConfig(
                     12 * 1024 * 1024,
                 ),
                 schemaVersion = schemaVersion,
-                rolloutPercent = rolloutPercent,
-                rolloutSalt = rolloutSalt,
             )
         }
 

@@ -50,23 +50,9 @@ class EventBatchEncoderTest {
                 OutboundRecord.Telemetry(
                     CollectionTelemetry(
                         capturedAtMs = 1_785_300_000_000,
-                        processUptimeMs = 1_000,
-                        serverTick = 20,
-                        tps1m = 20.0,
-                        mspt = 4.0,
-                        onlinePlayerUuids = listOf(playerId),
-                        eligiblePlayerUuids = listOf(playerId),
-                        capturedPlayerUuids = listOf(playerId),
-                        grayFilteredEvents = 0,
-                        playerFilteredEvents = 0,
-                        actionFilteredEvents = 0,
-                        afkFilteredEvents = 0,
-                        throttledEvents = 0,
-                        decodeFailedEvents = 0,
-                        queueDroppedRecords = 0,
-                        spoolDroppedBatches = 0,
-                        spoolDroppedEvents = 0,
-                        unsupportedPacketNames = listOf("ATTACK"),
+                        eligiblePlayerCount = 1,
+                        missingPlayerUuids = emptyList(),
+                        deliveryLossObserved = false,
                     ),
                 ),
                 OutboundRecord.InterventionHandled(
@@ -96,7 +82,8 @@ class EventBatchEncoderTest {
         assertTrue(json.contains("\"session_monotonic_us\":0"))
         assertTrue(json.contains("\"event_type\":\"movement\""))
         assertTrue(json.contains("\"position_updated\":true"))
-        assertTrue(json.contains("\"eligible_player_uuids\":[\"$playerId\"]"))
+        assertTrue(json.contains("\"eligible_player_count\":1"))
+        assertTrue(json.contains("\"delivery_loss_observed\":false"))
         assertTrue(json.contains("\"intervention_receipts\":[{"))
         assertTrue(json.contains("\"outcome\":\"applied\""))
         assertFalse(json.contains("raw_fields"))

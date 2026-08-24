@@ -11,7 +11,6 @@ Shield 在 Velocity 后端通过 ProtocolLib 捕获客户端入站包，转换�
 ProtocolLib
   → 显式白名单、过滤与节流
 Paper 权威事件与低频玩家心跳
-  → 玩家 UUID 稳定灰度
   → 有界内存队列
   → gzip + HMAC 的 shield.events.v2
   → 有界磁盘 spool
@@ -38,8 +37,8 @@ Paper 权威事件与低频玩家心跳
 4. 每个后端配置唯一的 `capture.server-id`，并启用 Velocity modern forwarding。
 5. 重启后执行 `/shield`，确认请求链路正常且没有异常摘要。
 
-默认接口为 `https://api.i5res.com/shield/v1/events`，默认采集 100% 符合过滤条件的
-玩家。`hmac-secret` 非空时优先；留空时从 `hmac-secret-env` 指定的环境变量读取。
+默认接口为 `https://api.i5res.com/shield/v1/events`。所有符合显式过滤条件的玩家
+进入同一采集路径。`hmac-secret` 非空时优先；留空时从 `hmac-secret-env` 指定的环境变量读取。
 带真实密钥的部署配置不得提交到版本库。
 
 旧数据库表不会被读取、写入或自动删除。历史数据的归档与删除是独立操作。
@@ -50,13 +49,10 @@ Paper 权威事件与低频玩家心跳
 inference:
   enabled: true
   endpoint: "https://api.i5res.com/shield/v1/events"
-  key-id: "gray-local-20260729"
+  key-id: "shield-events-1"
   hmac-secret: "<与 Shield-Inference 一致的至少 32 字符密钥>"
   hmac-secret-env: "SHIELD_INFERENCE_HMAC_SECRET"
   schema-version: "shield.events.v2"
-
-  rollout-percent: 100.0
-  rollout-salt: "shield-gray-v1"
 
   batch-size: 500
   flush-interval-ms: 1000
@@ -80,7 +76,7 @@ inference:
   不做忙重试。
 - pending 和隔离区共用容量上限与 TTL，磁盘占用有明确上界。
 - spool 文件权限在支持 POSIX 权限的平台设为仅服务账号可读写。
-- `reload` 更新捕获与玩家干预策略；接口、密钥、spool、灰度比例和服务身份变更需重启。
+- `reload` 更新捕获与玩家干预策略；接口、密钥、spool 和服务身份变更需重启。
 
 HMAC 只提供身份与完整性。生产接口必须使用 HTTPS；只有显式开启
 `allow-insecure-http` 或回环地址才允许 HTTP。
@@ -142,7 +138,7 @@ capture:
 ```
 
 - `include` 的所有非空维度都要命中；`exclude` 任一维度命中即拒绝。
-- 可用 `capture.filters.include.uuids` 做显式白名单，再叠加稳定百分比灰度。
+- 可用 `capture.filters.include.uuids` 做显式白名单；未配置时不按玩家抽样。
 - 同一玩家、同一 `rate-limit-group` 共享最小采样间隔。
 - `include-actions` 无法求值时拒绝；v2 不发送反射生成的 `raw_fields`。
 - AFK 到期后停止发送，但继续观察恢复活动所需的包。
@@ -167,8 +163,7 @@ Paper 的 `PrePlayerAttackEntityEvent` 提供客户端攻击意图与目标；�
 - 玩家：UUID、名称、世界、模式和观测协议。
 - 事件：来源、稳定事件类型、分类、包类型、动作、目标身份、姿态、字段新鲜度及
   受限语义 payload。
-- 采集证明：每个周期独立统计在线、符合条件和实际采集 UUID 集合，并附带过滤、
-  节流、解码失败、队列/spool 丢弃及不支持包型累计计数。
+- 采集证明：每个周期报告符合条件玩家数、漏采玩家 UUID 和投递丢失事实。
 - 干预回执：`directive_id`、玩家 UUID、`warn/kick`、处理结果与处理时间。
 
 `shield.events.v1` 不包含上述 v2 字段和采集证明；它只用于旧推理端过渡，不能作为

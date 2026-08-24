@@ -132,23 +132,9 @@ internal object EventBatchEncoder {
 
     private fun telemetryMap(value: CollectionTelemetry): Map<String, Any?> = linkedMapOf(
         "captured_at_ms" to value.capturedAtMs,
-        "process_uptime_ms" to value.processUptimeMs,
-        "server_tick" to value.serverTick,
-        "tps_1m" to value.tps1m,
-        "mspt" to value.mspt,
-        "online_player_uuids" to value.onlinePlayerUuids.map(UUID::toString),
-        "eligible_player_uuids" to value.eligiblePlayerUuids.map(UUID::toString),
-        "captured_player_uuids" to value.capturedPlayerUuids.map(UUID::toString),
-        "gray_filtered_events" to value.grayFilteredEvents,
-        "player_filtered_events" to value.playerFilteredEvents,
-        "action_filtered_events" to value.actionFilteredEvents,
-        "afk_filtered_events" to value.afkFilteredEvents,
-        "throttled_events" to value.throttledEvents,
-        "decode_failed_events" to value.decodeFailedEvents,
-        "queue_dropped_records" to value.queueDroppedRecords,
-        "spool_dropped_batches" to value.spoolDroppedBatches,
-        "spool_dropped_events" to value.spoolDroppedEvents,
-        "unsupported_packet_names" to value.unsupportedPacketNames,
+        "eligible_player_count" to value.eligiblePlayerCount,
+        "missing_player_uuids" to value.missingPlayerUuids.map(UUID::toString),
+        "delivery_loss_observed" to value.deliveryLossObserved,
     )
 
     private fun receiptMap(value: InterventionReceipt): Map<String, Any?> = linkedMapOf(
