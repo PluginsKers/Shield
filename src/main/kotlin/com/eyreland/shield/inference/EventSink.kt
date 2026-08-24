@@ -32,7 +32,6 @@ data class CollectionTelemetry(
     val onlinePlayerUuids: List<UUID>,
     val eligiblePlayerUuids: List<UUID>,
     val capturedPlayerUuids: List<UUID>,
-    val grayFilteredEvents: Long,
     val playerFilteredEvents: Long,
     val actionFilteredEvents: Long,
     val afkFilteredEvents: Long,
@@ -48,8 +47,6 @@ interface EventSink {
     val endpoint: URI
 
     fun start()
-
-    fun accepts(uuid: UUID): Boolean
 
     /** 捕获线程只调用非阻塞 offer。 */
     fun enqueue(sample: PacketSample): Boolean

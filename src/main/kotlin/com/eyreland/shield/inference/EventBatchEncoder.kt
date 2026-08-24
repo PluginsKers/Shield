@@ -139,7 +139,6 @@ internal object EventBatchEncoder {
         "online_player_uuids" to value.onlinePlayerUuids.map(UUID::toString),
         "eligible_player_uuids" to value.eligiblePlayerUuids.map(UUID::toString),
         "captured_player_uuids" to value.capturedPlayerUuids.map(UUID::toString),
-        "gray_filtered_events" to value.grayFilteredEvents,
         "player_filtered_events" to value.playerFilteredEvents,
         "action_filtered_events" to value.actionFilteredEvents,
         "afk_filtered_events" to value.afkFilteredEvents,

@@ -48,7 +48,6 @@ class PacketCaptureService(
         val throttled: Long,
         val decodeFailed: Long,
         val missingContext: Long,
-        val grayFiltered: Long,
         val onlinePlayers: Int,
         val eligiblePlayers: Int,
         val capturedPlayers: Int,
@@ -81,8 +80,6 @@ class PacketCaptureService(
     private val throttled = AtomicLong()
     private val decodeFailed = AtomicLong()
     private val missingContext = AtomicLong()
-    private val grayFiltered = AtomicLong()
-
     @Volatile var enabled: Boolean = false
         private set
 
@@ -199,7 +196,6 @@ class PacketCaptureService(
             throttled = throttled.get(),
             decodeFailed = decodeFailed.get(),
             missingContext = missingContext.get(),
-            grayFiltered = grayFiltered.get(),
             onlinePlayers = online.size,
             eligiblePlayers = eligible.size,
             capturedPlayers = eligible.count { capturedPlayers.contains(it.playerUuid) },
@@ -225,10 +221,6 @@ class PacketCaptureService(
         val player = event.player ?: return
         val uuid = runCatching { player.uniqueId }.getOrNull() ?: return
         val name = runCatching { player.name }.getOrNull()?.takeIf(String::isNotEmpty) ?: return
-        if (!sink.accepts(uuid)) {
-            grayFiltered.incrementAndGet()
-            return
-        }
         val context = contexts.get(uuid) ?: fallbackContext(uuid, name)
         activeSessions[uuid] = context.sessionId
         val rule = ruleByType[event.packetType]
@@ -362,10 +354,6 @@ class PacketCaptureService(
             missingContext.incrementAndGet()
             return false
         }
-        if (!sink.accepts(playerUuid)) {
-            grayFiltered.incrementAndGet()
-            return false
-        }
         if (observedProtocol != null) observedProtocols.putIfAbsent(playerUuid, observedProtocol)
         val protocol = observedProtocol ?: observedProtocols[playerUuid]
         val subject = CaptureSubject(
@@ -454,7 +442,6 @@ class PacketCaptureService(
     }
 
     private fun isEligible(context: CaptureContext): Boolean {
-        if (!sink.accepts(context.playerUuid)) return false
         return config.filter.allows(
             CaptureSubject(
                 context.playerUuid,
@@ -485,7 +472,6 @@ class PacketCaptureService(
                 capturedPlayerUuids = eligible
                     .map(CaptureContext::playerUuid)
                     .filter { it in capturedInInterval },
-                grayFilteredEvents = grayFiltered.get(),
                 playerFilteredEvents = playerFiltered.get(),
                 actionFilteredEvents = actionFiltered.get(),
                 afkFilteredEvents = afkFiltered.get(),

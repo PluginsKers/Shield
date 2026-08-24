@@ -17,7 +17,6 @@ class InferenceConfigTest {
             config.endpoint.toString(),
         )
         assertEquals("shield.events.v2", config.schemaVersion)
-        assertEquals(100.0, config.rolloutPercent)
         assertEquals(500, config.batchSize)
     }
 

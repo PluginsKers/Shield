@@ -7,7 +7,7 @@ class HmacSignerTest {
     @Test
     fun `matches Python service canonical signature`() {
         val headers = HmacSigner.sign(
-            keyId = "gray-key",
+            keyId = "shield-key",
             secret = "0123456789abcdef0123456789abcdef",
             timestamp = 1_785_300_000,
             nonce = "0123456789abcdef0123456789abcdef",
@@ -15,7 +15,7 @@ class HmacSignerTest {
         )
 
         assertEquals(
-            "3115974e2a7f6f5828ae7ce7501160e25e300ec437dd40aa8235528508d08627",
+            "5bb835de5c6bf7aca1a0b50e60ace845620497f404844719b6c6eb3150bf6d1a",
             headers.signature,
         )
     }

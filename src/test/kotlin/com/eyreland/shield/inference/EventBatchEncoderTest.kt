@@ -57,7 +57,6 @@ class EventBatchEncoderTest {
                         onlinePlayerUuids = listOf(playerId),
                         eligiblePlayerUuids = listOf(playerId),
                         capturedPlayerUuids = listOf(playerId),
-                        grayFilteredEvents = 0,
                         playerFilteredEvents = 0,
                         actionFilteredEvents = 0,
                         afkFilteredEvents = 0,
