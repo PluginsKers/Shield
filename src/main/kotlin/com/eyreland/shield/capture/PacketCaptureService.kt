@@ -58,7 +58,6 @@ class PacketCaptureService(
     private var adapter: PacketAdapter? = null
     private var telemetryTask: ScheduledTask? = null
     private var serverVersion: String = "unknown"
-    private val processStartedNanos = System.nanoTime()
 
     private val definitionByType = HashMap<PacketType, PacketDefinition>()
     private val ruleByType = HashMap<PacketType, PacketRule>()
@@ -455,32 +454,20 @@ class PacketCaptureService(
 
     private fun emitCollectionTelemetry() {
         if (!enabled) return
-        val processUptimeNanos = (System.nanoTime() - processStartedNanos).coerceAtLeast(0L)
-        val online = contexts.snapshot().sortedBy { it.playerUuid.toString() }
-        val eligible = online.filter(::isEligible)
+        val eligible = contexts.snapshot()
+            .filter(::isEligible)
+            .map(CaptureContext::playerUuid)
+            .sortedBy(UUID::toString)
         val capturedInInterval = capturedPlayers.drain()
         val sinkStats = sink.stats()
         sink.enqueueTelemetry(
             CollectionTelemetry(
                 capturedAtMs = System.currentTimeMillis(),
-                processUptimeMs = processUptimeNanos / 1_000_000L,
-                serverTick = logicalTicksSinceStart(processUptimeNanos),
-                tps1m = plugin.server.tps.firstOrNull() ?: 0.0,
-                mspt = plugin.server.averageTickTime.coerceAtLeast(0.0),
-                onlinePlayerUuids = online.map(CaptureContext::playerUuid),
-                eligiblePlayerUuids = eligible.map(CaptureContext::playerUuid),
-                capturedPlayerUuids = eligible
-                    .map(CaptureContext::playerUuid)
-                    .filter { it in capturedInInterval },
-                playerFilteredEvents = playerFiltered.get(),
-                actionFilteredEvents = actionFiltered.get(),
-                afkFilteredEvents = afkFiltered.get(),
-                throttledEvents = throttled.get(),
-                decodeFailedEvents = decodeFailed.get(),
-                queueDroppedRecords = sinkStats.queueDropped,
-                spoolDroppedBatches = sinkStats.spoolDroppedBatches,
-                spoolDroppedEvents = sinkStats.spoolDroppedEvents,
-                unsupportedPacketNames = unsupportedPacketNames.sorted(),
+                eligiblePlayerCount = eligible.size,
+                missingPlayerUuids = eligible.filter { it !in capturedInInterval },
+                deliveryLossObserved = sinkStats.queueDropped > 0 ||
+                    sinkStats.spoolDroppedBatches > 0 ||
+                    sinkStats.spoolDroppedEvents > 0,
             ),
         )
     }
@@ -521,10 +508,6 @@ class PacketCaptureService(
             )
         }
 }
-
-/** Folia 全局调度器不处于 ticking region；采集证明使用进程内单调逻辑 tick。 */
-internal fun logicalTicksSinceStart(processUptimeNanos: Long): Long =
-    processUptimeNanos / 50_000_000L
 
 internal class CapturedPlayerIntervals {
     private val active = AtomicReference(ConcurrentHashMap.newKeySet<UUID>())
