@@ -1,4 +1,4 @@
-# Shield 在线事件采集配置
+# Shield 事件采集与玩家干预配置
 
 inference:
   enabled: true

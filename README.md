@@ -35,7 +35,7 @@ Paper 权威事件与低频玩家心跳
 
 3. 执行 `./gradlew build`，部署 `build/libs/Shield-<version>.jar`。
 4. 每个后端配置唯一的 `capture.server-id`，并启用 Velocity modern forwarding。
-5. 重启后执行 `/shield`，确认请求链路正常且没有异常摘要。
+5. 重启后执行 `/shield`，确认采集运行且没有失败记录。
 
 默认接口为 `https://api.i5res.com/shield/v1/events`。所有符合显式过滤条件的玩家
 进入同一采集路径。`hmac-secret` 非空时优先；留空时从 `hmac-secret-env` 指定的环境变量读取。
@@ -76,7 +76,7 @@ inference:
   不做忙重试。
 - pending 和隔离区共用容量上限与 TTL，磁盘占用有明确上界。
 - spool 文件权限在支持 POSIX 权限的平台设为仅服务账号可读写。
-- `reload` 更新捕获与玩家干预策略；接口、密钥、spool 和服务身份变更需重启。
+- `reload` 更新采集与玩家干预策略；接口、密钥、spool 和服务身份变更需重启。
 
 HMAC 只提供身份与完整性。生产接口必须使用 HTTPS；只有显式开启
 `allow-insecure-http` 或回环地址才允许 HTTP。
@@ -181,9 +181,8 @@ Paper 的 `PrePlayerAttackEntityEvent` 提供客户端攻击意图与目标；�
 /shield reload
 ```
 
-`/shield` 展示请求链路结论以及当前遥测周期的在线、符合条件、已采集玩家数和
-过滤/丢弃口径；发生解码、丢弃、隔离或服务拒绝时再追加异常摘要。旧
-`/shield status` 保留为兼容别名，但不进入帮助或命令补全。
+`/shield` 展示采集运行状态、累计发送量、内存和磁盘待发量。本次运行的丢弃与
+传输失败使用累计计数；隔离批次和最近 HTTP 失败使用当前快照。
 
 `/shield reload` 原子重载采集策略与 `interventions`。接口、密钥、spool、server-id 或
 proxy-mode 等传输配置变更仍需重启服务器，命令反馈会明确提示这一边界。

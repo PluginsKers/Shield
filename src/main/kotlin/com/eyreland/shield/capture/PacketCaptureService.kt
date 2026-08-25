@@ -38,22 +38,6 @@ class PacketCaptureService(
     private val sink: EventSink,
     private val logger: Logger,
 ) : Listener {
-    data class Stats(
-        val received: Long,
-        val selected: Long,
-        val enqueued: Long,
-        val playerFiltered: Long,
-        val actionFiltered: Long,
-        val afkFiltered: Long,
-        val throttled: Long,
-        val decodeFailed: Long,
-        val missingContext: Long,
-        val onlinePlayers: Int,
-        val eligiblePlayers: Int,
-        val capturedPlayers: Int,
-        val unsupportedPackets: Int,
-    )
-
     private var protocolManager: ProtocolManager? = null
     private var adapter: PacketAdapter? = null
     private var telemetryTask: ScheduledTask? = null
@@ -70,22 +54,8 @@ class PacketCaptureService(
     private val rateLimiter = CaptureRateLimiter()
     private val afk = AfkTracker(config.afkTimeoutMs)
 
-    private val received = AtomicLong()
-    private val selected = AtomicLong()
-    private val enqueued = AtomicLong()
-    private val playerFiltered = AtomicLong()
-    private val actionFiltered = AtomicLong()
-    private val afkFiltered = AtomicLong()
-    private val throttled = AtomicLong()
     private val decodeFailed = AtomicLong()
-    private val missingContext = AtomicLong()
     @Volatile var enabled: Boolean = false
-        private set
-
-    @Volatile var activePacketNames: Set<String> = emptySet()
-        private set
-
-    @Volatile var unsupportedPacketNames: Set<String> = emptySet()
         private set
 
     fun start() {
@@ -127,8 +97,6 @@ class PacketCaptureService(
             definitionByType.putIfAbsent(type, definition)
         }
 
-        activePacketNames = active
-        unsupportedPacketNames = unsupported
         if (unsupported.isNotEmpty()) {
             logger.warning("当前 ProtocolLib/Minecraft 不支持或 Shield 未识别的显式数据包: ${unsupported.joinToString()}")
         }
@@ -182,26 +150,6 @@ class PacketCaptureService(
         afk.clear()
     }
 
-    fun stats(): Stats {
-        val online = contexts.snapshot()
-        val eligible = online.filter(::isEligible)
-        return Stats(
-            received = received.get(),
-            selected = selected.get(),
-            enqueued = enqueued.get(),
-            playerFiltered = playerFiltered.get(),
-            actionFiltered = actionFiltered.get(),
-            afkFiltered = afkFiltered.get(),
-            throttled = throttled.get(),
-            decodeFailed = decodeFailed.get(),
-            missingContext = missingContext.get(),
-            onlinePlayers = online.size,
-            eligiblePlayers = eligible.size,
-            capturedPlayers = eligible.count { capturedPlayers.contains(it.playerUuid) },
-            unsupportedPackets = unsupportedPacketNames.size,
-        )
-    }
-
     @EventHandler(priority = EventPriority.MONITOR)
     fun onQuit(event: PlayerQuitEvent) {
         val uuid = event.player.uniqueId
@@ -215,7 +163,6 @@ class PacketCaptureService(
 
     private fun handle(event: PacketEvent) {
         if (!enabled) return
-        received.incrementAndGet()
         val definition = definitionByType[event.packetType] ?: return
         val player = event.player ?: return
         val uuid = runCatching { player.uniqueId }.getOrNull() ?: return
@@ -248,7 +195,6 @@ class PacketCaptureService(
 
         if (!isSelected) return
         val selectedRule = checkNotNull(rule)
-        selected.incrementAndGet()
 
         val observedProtocol = observedProtocols[uuid] ?: protocolManager
             ?.let { runCatching { it.getProtocolVersion(player) }.getOrNull() }
@@ -256,19 +202,15 @@ class PacketCaptureService(
             ?.also { observedProtocols.putIfAbsent(uuid, it) }
         val subject = CaptureSubject(uuid, context.playerName, context.world, context.gameMode, observedProtocol)
         if (!config.filter.allows(subject)) {
-            playerFiltered.incrementAndGet()
             return
         }
         if (afk.isAfk(uuid, nowMs)) {
-            afkFiltered.incrementAndGet()
             return
         }
         if (!selectedRule.allowsAction(decoded.action)) {
-            actionFiltered.incrementAndGet()
             return
         }
         if (!rateLimiter.allow(uuid, selectedRule, nowNanos)) {
-            throttled.incrementAndGet()
             return
         }
 
@@ -331,7 +273,6 @@ class PacketCaptureService(
             payload = payload,
         )
         if (sink.enqueue(sample)) {
-            enqueued.incrementAndGet()
             capturedPlayers.mark(uuid)
         }
     }
@@ -349,10 +290,7 @@ class PacketCaptureService(
         payload: Map<String, Any?> = emptyMap(),
     ): Boolean {
         if (!enabled) return false
-        val context = contexts.get(playerUuid) ?: run {
-            missingContext.incrementAndGet()
-            return false
-        }
+        val context = contexts.get(playerUuid) ?: return false
         if (observedProtocol != null) observedProtocols.putIfAbsent(playerUuid, observedProtocol)
         val protocol = observedProtocol ?: observedProtocols[playerUuid]
         val subject = CaptureSubject(
@@ -363,7 +301,6 @@ class PacketCaptureService(
             protocol,
         )
         if (!config.filter.allows(subject)) {
-            playerFiltered.incrementAndGet()
             return false
         }
 
@@ -419,7 +356,6 @@ class PacketCaptureService(
         )
         val accepted = sink.enqueue(sample)
         if (accepted) {
-            enqueued.incrementAndGet()
             capturedPlayers.mark(playerUuid)
         }
         return accepted
@@ -491,7 +427,6 @@ class PacketCaptureService(
 
     private fun fallbackContext(uuid: UUID, name: String): CaptureContext =
         fallbackContexts.computeIfAbsent(uuid) {
-            missingContext.incrementAndGet()
             val now = System.currentTimeMillis()
             CaptureContext(
                 sessionId = UUID.randomUUID(),
@@ -519,8 +454,6 @@ internal class CapturedPlayerIntervals {
             if (active.get() === interval) return
         }
     }
-
-    fun contains(playerUuid: UUID): Boolean = playerUuid in active.get()
 
     fun drain(): Set<UUID> = active.getAndSet(ConcurrentHashMap.newKeySet()).toSet()
 
