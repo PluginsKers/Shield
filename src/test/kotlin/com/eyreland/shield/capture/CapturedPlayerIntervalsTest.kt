@@ -3,8 +3,6 @@ package com.eyreland.shield.capture
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class CapturedPlayerIntervalsTest {
     @Test
@@ -14,9 +12,8 @@ class CapturedPlayerIntervalsTest {
         val intervals = CapturedPlayerIntervals()
 
         intervals.mark(first)
-        assertTrue(intervals.contains(first))
         assertEquals(setOf(first), intervals.drain())
-        assertFalse(intervals.contains(first))
+        assertEquals(emptySet(), intervals.drain())
 
         intervals.mark(second)
         assertEquals(setOf(second), intervals.drain())

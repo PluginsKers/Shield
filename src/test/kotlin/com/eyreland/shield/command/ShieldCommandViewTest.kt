@@ -8,9 +8,9 @@ import kotlin.test.assertTrue
 
 class ShieldCommandViewTest {
     @Test
-    fun `root command is status and legacy status stays compatible`() {
+    fun `root command is status and reload is the only subcommand`() {
         assertEquals(ShieldCommandAction.STATUS, ShieldCommandView.action(emptyList()))
-        assertEquals(ShieldCommandAction.STATUS, ShieldCommandView.action(listOf("STATUS")))
+        assertEquals(ShieldCommandAction.USAGE, ShieldCommandView.action(listOf("STATUS")))
         assertEquals(ShieldCommandAction.RELOAD, ShieldCommandView.action(listOf("reload")))
         assertEquals(ShieldCommandAction.USAGE, ShieldCommandView.action(listOf("help")))
         assertEquals(
@@ -34,12 +34,11 @@ class ShieldCommandViewTest {
             add(ShieldCommandView.NO_PERMISSION)
             add(ShieldCommandView.RELOAD_SUCCESS)
             add(ShieldCommandView.reloadFailure(null))
-            addAll(ShieldCommandView.status(false, 0, null, 0))
-            addAll(ShieldCommandView.status(true, 0, stats(), 0))
+            addAll(ShieldCommandView.status(false, null, 0))
+            addAll(ShieldCommandView.status(true, stats(), 0))
             addAll(
                 ShieldCommandView.status(
                     captureEnabled = true,
-                    decodeFailures = 1,
                     sinkStats = stats(lastHttpStatus = 500),
                     queuedRecords = 1,
                 ),
@@ -53,20 +52,17 @@ class ShieldCommandViewTest {
     }
 
     @Test
-    fun `healthy status reports transport and collection coverage`() {
+    fun `running status reports only transport facts`() {
         val lines = ShieldCommandView.status(
             captureEnabled = true,
-            decodeFailures = 0,
             sinkStats = stats(),
             queuedRecords = 3,
         )
 
         assertEquals(
             listOf(
-                "§aShield 正常§7。已发送 §f1,234§7 批、§f56,789§7 个事件，" +
-                    "待发送 §f2§7 批；内存中还有 §f3§7 条记录。",
-                "§7采集覆盖：在线 §f0§7，符合条件 §f0§7，已采集 §f0§7；" +
-                    "玩家过滤 §f0§7，节流 §f0§7，不支持包型 §f0§7。",
+                "§fShield 运行中§7。已发送 §f1,234§7 批、§f56,789§7 个事件，" +
+                    "磁盘待发送 §f2§7 批；内存待发送 §f3§7 条记录。",
             ),
             lines,
         )
@@ -78,12 +74,15 @@ class ShieldCommandViewTest {
     @Test
     fun `disabled and idle states stay one line`() {
         assertEquals(
-            listOf("§cShield 未运行§7，事件传输尚未启用。"),
-            ShieldCommandView.status(false, 0, null, 0),
+            listOf("§eShield 事件传输未启用§7。"),
+            ShieldCommandView.status(false, null, 0),
         )
         assertEquals(
-            listOf("§eShield 待命§7，采集当前没有运行。"),
-            ShieldCommandView.status(false, 0, stats(), 0),
+            listOf(
+                "§eShield 采集未运行§7。已发送 §f1,234§7 批、§f56,789§7 个事件，" +
+                    "磁盘待发送 §f2§7 批；内存待发送 §f0§7 条记录。",
+            ),
+            ShieldCommandView.status(false, stats(), 0),
         )
     }
 
@@ -91,40 +90,40 @@ class ShieldCommandViewTest {
     fun `temporary transport failure adds one reason line`() {
         val lines = ShieldCommandView.status(
             captureEnabled = true,
-            decodeFailures = 0,
             sinkStats = stats(lastHttpStatus = 429),
             queuedRecords = 0,
         )
 
-        assertEquals(3, lines.size)
-        assertTrue(lines[0].startsWith("§eShield 同步中"))
-        assertEquals("§7检测到：最近一次 HTTP 状态为 §f429§7。", lines[2])
+        assertEquals(2, lines.size)
+        assertTrue(lines[0].startsWith("§fShield 运行中"))
+        assertEquals("§7最近一次 HTTP 状态为 §f429§7。", lines[1])
     }
 
     @Test
-    fun `data loss and rejection collapse into one anomaly line`() {
+    fun `historical failures do not redefine the current running state`() {
         val lines = ShieldCommandView.status(
             captureEnabled = true,
-            decodeFailures = 4,
             sinkStats = stats(
                 queueDropped = 3,
                 spoolDroppedBatches = 2,
                 spoolDroppedEvents = 20,
                 quarantinedBatches = 1,
+                rateLimited = 1,
                 authenticationFailed = 1,
                 schemaRejected = 2,
                 otherRejected = 3,
+                networkFailed = 2,
             ),
             queuedRecords = 0,
         )
 
-        assertEquals(3, lines.size)
-        assertTrue(lines[0].startsWith("§cShield 异常"))
+        assertEquals(2, lines.size)
+        assertTrue(lines[0].startsWith("§fShield 运行中"))
         assertEquals(
-            "§7检测到：解码失败 §f4§7 条；内存丢弃 §f3§7 条；" +
-                "磁盘丢弃 §f2§7 批、§f20§7 个事件；隔离 §f1§7 批；" +
-                "服务拒绝 §f6§7 次。",
-            lines[2],
+            "§7本次运行累计：内存丢弃 §f3§7 条记录；" +
+                "磁盘丢弃 §f2§7 批、§f20§7 个事件；传输失败 §f9§7 次；" +
+                "当前隔离 §f1§7 批。",
+            lines[1],
         )
     }
 
@@ -133,19 +132,21 @@ class ShieldCommandViewTest {
         spoolDroppedBatches: Long = 0,
         spoolDroppedEvents: Long = 0,
         quarantinedBatches: Int = 0,
+        rateLimited: Long = 0,
         authenticationFailed: Long = 0,
         schemaRejected: Long = 0,
         otherRejected: Long = 0,
+        networkFailed: Long = 0,
         lastHttpStatus: Int? = 202,
     ): EventSinkStats = EventSinkStats(
         sentBatches = 1_234,
         sentEvents = 56_789,
         retried = 0,
-        rateLimited = 0,
+        rateLimited = rateLimited,
         authenticationFailed = authenticationFailed,
         schemaRejected = schemaRejected,
         otherRejected = otherRejected,
-        networkFailed = 0,
+        networkFailed = networkFailed,
         queueDropped = queueDropped,
         spoolDroppedBatches = spoolDroppedBatches,
         spoolDroppedEvents = spoolDroppedEvents,

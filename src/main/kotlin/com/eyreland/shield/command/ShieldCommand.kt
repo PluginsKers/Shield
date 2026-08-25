@@ -18,13 +18,12 @@ internal enum class ShieldCommandAction {
 internal object ShieldCommandView {
     const val USAGE = "§7用法：/shield [reload]"
     const val NO_PERMISSION = "§c你没有权限管理 Shield。"
-    const val RELOAD_SUCCESS = "§aShield 已重载采集策略§7。传输配置变更仍需重启服务器。"
+    const val RELOAD_SUCCESS = "§aShield 已重载采集与玩家干预策略§7。传输配置变更仍需重启服务器。"
 
     fun reloadFailure(reason: String?): String = "§cShield 重载失败§7：${reason ?: "请查看控制台"}"
 
     fun action(args: List<String>): ShieldCommandAction = when {
         args.isEmpty() -> ShieldCommandAction.STATUS
-        args.size == 1 && args[0].equals("status", ignoreCase = true) -> ShieldCommandAction.STATUS
         args.size == 1 && args[0].equals("reload", ignoreCase = true) -> ShieldCommandAction.RELOAD
         else -> ShieldCommandAction.USAGE
     }
@@ -37,53 +36,24 @@ internal object ShieldCommandView {
 
     fun status(
         captureEnabled: Boolean,
-        decodeFailures: Long,
         sinkStats: EventSinkStats?,
         queuedRecords: Int,
-        onlinePlayers: Int = 0,
-        eligiblePlayers: Int = 0,
-        capturedPlayers: Int = 0,
-        playerFiltered: Long = 0,
-        throttled: Long = 0,
-        unsupportedPackets: Int = 0,
     ): List<String> {
         if (sinkStats == null) {
-            return listOf("§cShield 未运行§7，事件传输尚未启用。")
-        }
-        if (!captureEnabled) {
-            return listOf("§eShield 待命§7，采集当前没有运行。")
+            return listOf("§eShield 事件传输未启用§7。")
         }
 
-        val permanentFailures = decodeFailures > 0 ||
-            sinkStats.queueDropped > 0 ||
-            sinkStats.spoolDroppedBatches > 0 ||
-            sinkStats.spoolDroppedEvents > 0 ||
-            sinkStats.quarantinedBatches > 0 ||
-            sinkStats.authenticationFailed > 0 ||
-            sinkStats.schemaRejected > 0 ||
-            sinkStats.otherRejected > 0
         val lastHttpFailed = sinkStats.lastHttpStatus?.let { it !in 200..299 } == true
-        val state = when {
-            permanentFailures -> "§cShield 异常"
-            lastHttpFailed -> "§eShield 同步中"
-            else -> "§aShield 正常"
-        }
+        val state = if (captureEnabled) "§fShield 运行中" else "§eShield 采集未运行"
         val lines = mutableListOf(
             "$state§7。已发送 §f${number(sinkStats.sentBatches)}§7 批、" +
-                "§f${number(sinkStats.sentEvents)}§7 个事件，待发送 " +
-                "§f${number(sinkStats.pendingBatches)}§7 批；内存中还有 " +
+                "§f${number(sinkStats.sentEvents)}§7 个事件，磁盘待发送 " +
+                "§f${number(sinkStats.pendingBatches)}§7 批；内存待发送 " +
                 "§f${number(queuedRecords)}§7 条记录。",
         )
-        lines += "§7采集覆盖：在线 §f${number(onlinePlayers)}§7，符合条件 " +
-            "§f${number(eligiblePlayers)}§7，已采集 §f${number(capturedPlayers)}§7；" +
-            "玩家过滤 §f${number(playerFiltered)}§7，" +
-            "节流 §f${number(throttled)}§7，不支持包型 §f${number(unsupportedPackets)}§7。"
-        val problems = buildList {
-            if (decodeFailures > 0) {
-                add("解码失败 §f${number(decodeFailures)}§7 条")
-            }
+        val history = buildList {
             if (sinkStats.queueDropped > 0) {
-                add("内存丢弃 §f${number(sinkStats.queueDropped)}§7 条")
+                add("内存丢弃 §f${number(sinkStats.queueDropped)}§7 条记录")
             }
             if (sinkStats.spoolDroppedBatches > 0) {
                 add(
@@ -91,17 +61,26 @@ internal object ShieldCommandView {
                         "§f${number(sinkStats.spoolDroppedEvents)}§7 个事件",
                 )
             }
-            if (sinkStats.quarantinedBatches > 0) {
-                add("隔离 §f${number(sinkStats.quarantinedBatches)}§7 批")
-            }
-            val rejected = sinkStats.authenticationFailed +
+            val transportFailures = sinkStats.rateLimited +
+                sinkStats.authenticationFailed +
                 sinkStats.schemaRejected +
-                sinkStats.otherRejected
-            if (rejected > 0) add("服务拒绝 §f${number(rejected)}§7 次")
+                sinkStats.otherRejected +
+                sinkStats.networkFailed
+            if (transportFailures > 0) {
+                add("传输失败 §f${number(transportFailures)}§7 次")
+            }
+        }
+        val observations = buildList {
+            if (history.isNotEmpty()) {
+                add("本次运行累计：${history.joinToString("；")}")
+            }
+            if (sinkStats.quarantinedBatches > 0) {
+                add("当前隔离 §f${number(sinkStats.quarantinedBatches)}§7 批")
+            }
             if (lastHttpFailed) add("最近一次 HTTP 状态为 §f${sinkStats.lastHttpStatus}§7")
         }
-        if (problems.isNotEmpty()) {
-            lines += "§7检测到：${problems.joinToString("；")}。"
+        if (observations.isNotEmpty()) {
+            lines += "§7${observations.joinToString("；")}。"
         }
         return lines
     }
@@ -144,19 +123,11 @@ class ShieldCommand(
 
     private fun status(sender: CommandSender) {
         val captureService = capture()
-        val captureStats = captureService?.stats()
         val eventSink = sink()
         ShieldCommandView.status(
             captureEnabled = captureService?.enabled == true,
-            decodeFailures = captureStats?.decodeFailed ?: 0,
             sinkStats = eventSink?.stats(),
             queuedRecords = eventSink?.queued() ?: 0,
-            onlinePlayers = captureStats?.onlinePlayers ?: 0,
-            eligiblePlayers = captureStats?.eligiblePlayers ?: 0,
-            capturedPlayers = captureStats?.capturedPlayers ?: 0,
-            playerFiltered = captureStats?.playerFiltered ?: 0,
-            throttled = captureStats?.throttled ?: 0,
-            unsupportedPackets = captureStats?.unsupportedPackets ?: 0,
         ).forEach(sender::sendMessage)
     }
 

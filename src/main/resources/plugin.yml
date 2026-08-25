@@ -3,18 +3,18 @@ version: '${version}'
 main: com.eyreland.shield.ShieldPlugin
 api-version: '1.21'
 folia-supported: true
-description: '艾尔大陆：异步在线反作弊事件采集'
+description: '艾尔大陆：在线反作弊事件采集与玩家干预'
 author: PluginsKers
 website: https://www.i5res.com
 depend: [ProtocolLib]
 
 commands:
   shield:
-    description: 查看 Shield 请求链路状态或重载采集策略
+    description: 查看 Shield 请求链路状态或重载采集与玩家干预策略
     permission: shield.admin
     usage: '/shield [reload]'
 
 permissions:
   shield.admin:
-    description: 允许查看 Shield 状态并重载采集策略
+    description: 允许查看 Shield 状态并重载采集与玩家干预策略
     default: op
