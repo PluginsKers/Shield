@@ -58,7 +58,7 @@ inference:
   flush-interval-ms: 1000
   queue-capacity: 20000
   connect-timeout-ms: 3000
-  request-timeout-ms: 10000
+  request-timeout-ms: 60000
   retry-initial-ms: 1000
   retry-max-ms: 60000
 

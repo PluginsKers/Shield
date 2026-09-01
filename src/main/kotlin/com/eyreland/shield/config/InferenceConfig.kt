@@ -83,7 +83,7 @@ data class InferenceConfig(
                 flushIntervalMs = longIn(section, "flush-interval-ms", 1_000, 100, 60_000),
                 queueCapacity = intIn(section, "queue-capacity", 20_000, 100, 1_000_000),
                 connectTimeoutMs = longIn(section, "connect-timeout-ms", 3_000, 100, 60_000),
-                requestTimeoutMs = longIn(section, "request-timeout-ms", 10_000, 500, 120_000),
+                requestTimeoutMs = longIn(section, "request-timeout-ms", 60_000, 500, 120_000),
                 retryInitialMs = retryInitialMs,
                 retryMaxMs = retryMaxMs,
                 maxSendBatchesPerCycle = intIn(section, "max-send-batches-per-cycle", 4, 1, 100),
