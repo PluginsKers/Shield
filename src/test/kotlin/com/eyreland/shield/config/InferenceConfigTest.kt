@@ -18,6 +18,7 @@ class InferenceConfigTest {
         )
         assertEquals("shield.events.v2", config.schemaVersion)
         assertEquals(500, config.batchSize)
+        assertEquals(60_000, config.requestTimeoutMs)
     }
 
     @Test
