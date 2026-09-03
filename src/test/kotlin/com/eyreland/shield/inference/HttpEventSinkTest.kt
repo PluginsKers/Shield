@@ -16,6 +16,9 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.logging.Handler
+import java.util.logging.Level
+import java.util.logging.LogRecord
 import java.util.logging.Logger
 import java.util.zip.GZIPInputStream
 import kotlin.test.Test
@@ -299,6 +302,62 @@ class HttpEventSinkTest {
             sink.stop()
             executor.shutdownNow()
             server.stop(0)
+        }
+    }
+
+    @Test
+    fun `network outage logs once without stack trace and reports recovery`() {
+        val port = ServerSocket(0).use { it.localPort }
+        val records = CopyOnWriteArrayList<LogRecord>()
+        val logger = Logger.getLogger("HttpEventSinkTest-${UUID.randomUUID()}").apply {
+            useParentHandlers = false
+            level = Level.ALL
+            addHandler(object : Handler() {
+                override fun publish(record: LogRecord) {
+                    records += record
+                }
+
+                override fun flush() = Unit
+                override fun close() = Unit
+            })
+        }
+        val executor = Executors.newSingleThreadScheduledExecutor()
+        val sink = HttpEventSink(
+            testConfig(URI("http://127.0.0.1:$port/v1/events")).copy(
+                retryInitialMs = 20,
+                retryMaxMs = 50,
+            ),
+            "survival-test",
+            "velocity",
+            temporaryDirectory,
+            executor,
+            logger,
+        )
+        var server: HttpServer? = null
+        try {
+            sink.start()
+            assertTrue(sink.enqueue(sample()))
+            await(Duration.ofSeconds(5)) { sink.stats().networkFailed >= 3 }
+
+            val failures = records.filter { it.message.startsWith("事件接口网络失败") }
+            assertEquals(1, failures.size)
+            assertEquals(null, failures.single().thrown)
+
+            server = HttpServer.create(InetSocketAddress("127.0.0.1", port), 0).apply {
+                createContext("/v1/events") { exchange ->
+                    exchange.requestBody.close()
+                    exchange.sendResponseHeaders(202, -1)
+                    exchange.close()
+                }
+                start()
+            }
+            await(Duration.ofSeconds(5)) { sink.stats().sentBatches == 1L }
+
+            assertEquals(1, records.count { it.message.startsWith("事件接口已恢复") })
+        } finally {
+            sink.stop()
+            executor.shutdownNow()
+            server?.stop(0)
         }
     }
 

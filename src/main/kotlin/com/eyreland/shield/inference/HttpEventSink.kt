@@ -356,6 +356,9 @@ class HttpEventSink(
             sentBatches.incrementAndGet()
             sentEvents.addAndGet(entry.eventCount.toLong())
             lastSuccessAtMs.set(clock.millis())
+            if (consecutiveFailures > 0) {
+                logger.info("事件接口已恢复（连续失败 $consecutiveFailures）")
+            }
             consecutiveFailures = 0
             nextAttemptAtMs = 0
             return SendResult.SUCCESS
@@ -548,10 +551,12 @@ class HttpEventSink(
 
     private fun logFailure(message: String, failure: Throwable? = null) {
         val failures = consecutiveFailures.coerceAtLeast(1)
-        if (failures <= 3 || failures % 10 == 0) {
-            if (failure == null) logger.warning("$message（连续失败 $failures）")
-            else logger.log(Level.WARNING, "$message（连续失败 $failures）", failure)
-        }
+        if (failures != 1) return
+        val detail = failure?.let {
+            val summary = it.message?.lineSequence()?.firstOrNull()?.take(200)
+            "：${it.javaClass.simpleName}${summary?.let { value -> "：$value" }.orEmpty()}"
+        }.orEmpty()
+        logger.warning("$message$detail（后续重复已静默）")
     }
 
     private data class SpoolEntry(
