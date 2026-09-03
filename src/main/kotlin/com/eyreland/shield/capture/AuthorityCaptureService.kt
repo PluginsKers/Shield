@@ -6,7 +6,8 @@ import io.papermc.paper.event.entity.EntityPushedByEntityAttackEvent
 import io.papermc.paper.event.player.PrePlayerAttackEntityEvent
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import org.bukkit.Location
-import org.bukkit.attribute.Attribute
+import org.bukkit.NamespacedKey
+import org.bukkit.Registry
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
@@ -278,11 +279,11 @@ class AuthorityCaptureService(
                 "mspt" to server.averageTickTime.coerceAtLeast(0.0),
             ),
             "attributes" to linkedMapOf(
-                "movement_speed" to player.attribute(Attribute.MOVEMENT_SPEED),
-                "flying_speed" to player.attribute(Attribute.FLYING_SPEED),
-                "attack_speed" to player.attribute(Attribute.ATTACK_SPEED),
-                "jump_strength" to player.attribute(Attribute.JUMP_STRENGTH),
-                "gravity" to player.attribute(Attribute.GRAVITY),
+                "movement_speed" to player.attribute("movement_speed"),
+                "flying_speed" to player.attribute("flying_speed"),
+                "attack_speed" to player.attribute("attack_speed"),
+                "jump_strength" to player.attribute("jump_strength"),
+                "gravity" to player.attribute("gravity"),
             ),
             "effects" to effects,
         )
@@ -296,8 +297,11 @@ class AuthorityCaptureService(
         )
     }
 
-    private fun Player.attribute(attribute: Attribute): Double? =
-        getAttribute(attribute)?.value
+    private fun Player.attribute(key: String): Double? = attributeKeys(key)
+        .firstNotNullOfOrNull { candidate ->
+            Registry.ATTRIBUTE.get(NamespacedKey.minecraft(candidate))
+                ?.let { getAttribute(it)?.value }
+        }
 
     private fun emitToggle(
         player: Player,
@@ -357,3 +361,5 @@ class AuthorityCaptureService(
         "pitch" to location.pitch,
     )
 }
+
+internal fun attributeKeys(key: String): List<String> = listOf(key, "generic.$key")

@@ -25,7 +25,7 @@ Paper 权威事件与低频玩家心跳
 
 ## 部署
 
-1. 准备 Paper 与对应版本的 ProtocolLib，不再需要 PostgreSQL。
+1. 准备 Paper 或 Folia 与明确支持该 Minecraft 版本的 ProtocolLib，不再需要 PostgreSQL。
 2. 在 `config.yml` 直接填写与目标服务端相同的 HMAC 密钥：
 
    ```yaml
@@ -36,6 +36,9 @@ Paper 权威事件与低频玩家心跳
 3. 执行 `./gradlew build`，部署 `build/libs/Shield-<version>.jar`。
 4. 每个后端配置唯一的 `capture.server-id`，并启用 Velocity modern forwarding。
 5. 重启后执行 `/shield`，确认采集运行且没有失败记录。
+
+插件以 Paper 1.21 API 和 Java 21 字节码构建，支持 Paper、Folia 1.21 至 26.2，
+以及保持 Paper API 兼容的服务端分支。运行时使用服务端要求的 Java 版本。
 
 默认接口为 `https://api.i5res.com/shield/v1/events`。所有符合显式过滤条件的玩家
 进入同一采集路径。`hmac-secret` 非空时优先；留空时从 `hmac-secret-env` 指定的环境变量读取。

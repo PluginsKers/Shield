@@ -13,7 +13,6 @@ java {
 kotlin {
     jvmToolchain(25)
     compilerOptions {
-        // 1.21.x 后端只要求 Java 21；保持字节码兼容，同时用较新工具链编译 26.1 API。
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
     }
 }
@@ -28,16 +27,16 @@ repositories {
 }
 
 dependencies {
-    // 以旧端公共 API 为编译边界，产物可同时加载于 1.21.x 与 26.1 后端。
-    compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
-    // 仅使用 5.4.0 已公开的稳定 API；Paper 26.1 运行时必须安装 ProtocolLib 5.5 开发版或更新版本。
+    // 以支持范围内最早的 Paper API 为编译边界。
+    compileOnly("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
+    // 运行时应安装明确支持目标 Minecraft 版本的 ProtocolLib 构建。
     compileOnly("net.dmulloy2:ProtocolLib:5.4.0")
 
     testImplementation(platform("org.junit:junit-bom:5.11.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation(kotlin("test"))
-    testImplementation("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
+    testImplementation("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
 }
 
 tasks {
