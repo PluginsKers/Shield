@@ -8,8 +8,6 @@ inference:
   hmac-secret: ""
   hmac-secret-env: "SHIELD_INFERENCE_HMAC_SECRET"
   allow-insecure-http: false
-  # v2 提供权威服务端语义、字段新鲜度、单调时序与采集证明。回滚旧推理端时可暂设 v1。
-  schema-version: "shield.events.v2"
 
   # 捕获线程只做非阻塞 offer；I/O 单线程批量 gzip 后发送。
   batch-size: 500
@@ -91,8 +89,7 @@ capture:
       min-interval-ms: 50
       rate-limit-group: movement
 
-    # 26.1+ 的攻击独立为 ATTACK；1.21.11 等版本仍从 USE_ENTITY 解出 ATTACK。
-    # 同时声明可让当前运行时自动选择受支持的形态。
+    # 不同协议代际的攻击包形态不同，同时声明后运行时会自动选择受支持的形态。
     ATTACK: true
     USE_ENTITY: true
     ARM_ANIMATION: true

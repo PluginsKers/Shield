@@ -50,10 +50,6 @@ class ShieldPlugin : JavaPlugin() {
             server.pluginManager.disablePlugin(this)
             return
         }
-        val effectiveInterventionConfig = interventionConfig.forSchema(
-            inferenceConfig.schemaVersion,
-        )
-
         registerCommand()
         if (!inferenceConfig.enabled) {
             logger.warning("inference.enabled=false；Shield 不捕获也不保存原始事件")
@@ -89,7 +85,7 @@ class ShieldPlugin : JavaPlugin() {
         try {
             interventionService = PlayerInterventionService(
                 plugin = this,
-                initialConfig = effectiveInterventionConfig,
+                initialConfig = interventionConfig,
                 ledgerPath = pluginRoot.resolve("intervention-ledger.properties"),
                 executor = executor,
                 receiptSink = eventSink::enqueueInterventionReceipt,
@@ -116,8 +112,8 @@ class ShieldPlugin : JavaPlugin() {
         capture = newCapture(contextStore, eventSink, captureConfig)
 
         logger.info(
-            "Shield 已启用（玩家警告=${effectiveInterventionConfig.enabled && effectiveInterventionConfig.warning.enabled}，" +
-                "踢出=${effectiveInterventionConfig.enabled && effectiveInterventionConfig.kick.enabled}）",
+            "Shield 已启用（玩家警告=${interventionConfig.enabled && interventionConfig.warning.enabled}，" +
+                "踢出=${interventionConfig.enabled && interventionConfig.kick.enabled}）",
         )
     }
 
@@ -190,9 +186,7 @@ class ShieldPlugin : JavaPlugin() {
         capture?.stop()
         contextStore.rotateSessions()
         capture = newCapture(contextStore, eventSink, newCaptureConfig)
-        interventionService.updateConfig(
-            newInterventionConfig.forSchema(newInferenceConfig.schemaVersion),
-        )
+        interventionService.updateConfig(newInterventionConfig)
     }
 
     override fun onDisable() {
@@ -222,11 +216,5 @@ class ShieldPlugin : JavaPlugin() {
         activeServerId = null
         activeProxyMode = null
         logger.info("Shield 已禁用")
-    }
-
-    private fun InterventionConfig.forSchema(schemaVersion: String): InterventionConfig {
-        if (schemaVersion == "shield.events.v2" || !enabled) return this
-        logger.warning("shield.events.v1 不支持玩家干预回执；本地玩家干预已关闭")
-        return copy(enabled = false)
     }
 }

@@ -12,7 +12,7 @@ ProtocolLib
   → 显式白名单、过滤与节流
 Paper 权威事件与低频玩家心跳
   → 有界内存队列
-  → gzip + HMAC 的 shield.events.v2
+  → gzip + HMAC 的完整事件批次
   → 有界磁盘 spool
   → HTTPS POST /shield/v1/events
   → 在线特征、评分、治理与人工复查
@@ -26,7 +26,7 @@ Paper 权威事件与低频玩家心跳
 ## 部署
 
 1. 准备 Paper 与对应版本的 ProtocolLib，不再需要 PostgreSQL。
-2. 在 `config.yml` 直接填写与 Shield-Inference 相同的 HMAC 密钥：
+2. 在 `config.yml` 直接填写与目标服务端相同的 HMAC 密钥：
 
    ```yaml
    inference:
@@ -39,7 +39,8 @@ Paper 权威事件与低频玩家心跳
 
 默认接口为 `https://api.i5res.com/shield/v1/events`。所有符合显式过滤条件的玩家
 进入同一采集路径。`hmac-secret` 非空时优先；留空时从 `hmac-secret-env` 指定的环境变量读取。
-带真实密钥的部署配置不得提交到版本库。
+接口可替换为任意无账号、query 和 fragment 的 HTTPS 绝对地址。带真实密钥的部署配置
+不得提交到版本库。
 
 旧数据库表不会被读取、写入或自动删除。历史数据的归档与删除是独立操作。
 
@@ -50,9 +51,8 @@ inference:
   enabled: true
   endpoint: "https://api.i5res.com/shield/v1/events"
   key-id: "shield-events-1"
-  hmac-secret: "<与 Shield-Inference 一致的至少 32 字符密钥>"
+  hmac-secret: "<与目标服务端一致的至少 32 字符密钥>"
   hmac-secret-env: "SHIELD_INFERENCE_HMAC_SECRET"
-  schema-version: "shield.events.v2"
 
   batch-size: 500
   flush-interval-ms: 1000
@@ -104,7 +104,7 @@ interventions:
 
 每个指令先写入 `intervention-ledger.properties` 再调度到玩家所属区域线程。
 台账保存待执行状态、结果与冷却信息；相同 `directive_id` 在 HTTP 重试或服务器重启
-后只会执行一次。`applied`、关闭、冷却、离线、过期等结果通过 v2 有界队列回传；
+后只会执行一次。`applied`、关闭、冷却、离线、过期等结果通过有界队列回传；
 回执写入磁盘 spool 后才从待重试台账移除，队列拥塞时由 I/O 执行器重试。接口
 故障或响应格式错误不触发玩家动作，也不阻塞游戏线程。
 
@@ -140,7 +140,7 @@ capture:
 - `include` 的所有非空维度都要命中；`exclude` 任一维度命中即拒绝。
 - 可用 `capture.filters.include.uuids` 做显式白名单；未配置时不按玩家抽样。
 - 同一玩家、同一 `rate-limit-group` 共享最小采样间隔。
-- `include-actions` 无法求值时拒绝；v2 不发送反射生成的 `raw_fields`。
+- `include-actions` 无法求值时拒绝；不发送反射生成的 `raw_fields`。
 - AFK 到期后停止发送，但继续观察恢复活动所需的包。
 - 聊天和自定义载荷不采集。
 
@@ -153,8 +153,7 @@ Paper 的 `PrePlayerAttackEntityEvent` 提供客户端攻击意图与目标；�
 
 ## 接口契约
 
-主协议为 `shield.events.v2`，滚动升级期间可把 `schema-version` 临时设为
-`shield.events.v1`：
+客户端始终发送当前完整事件批次。旧批次兼容由服务端负责，客户端不提供协议降级配置：
 
 - 批次：`batch_id`、`sent_at_ms`、`server_id`、`proxy_mode`、
   `server_version`、`events`、`closed_sessions`。
@@ -165,9 +164,6 @@ Paper 的 `PrePlayerAttackEntityEvent` 提供客户端攻击意图与目标；�
   受限语义 payload。
 - 采集证明：每个周期报告符合条件玩家数、漏采玩家 UUID 和投递丢失事实。
 - 干预回执：`directive_id`、玩家 UUID、`warn/kick`、处理结果与处理时间。
-
-`shield.events.v1` 不包含上述 v2 字段和采集证明；它只用于旧推理端过渡，不能作为
-全量覆盖或权威攻击语义的验收证据。
 
 服务返回 `202` 后，Shield 会先验证不超过 1 MiB、1,000 条指令的 ACK 并把新指令写入本地
 台账，再删除 pending 文件。响应丢失时用相同 body 重试，服务端按 `batch_id`

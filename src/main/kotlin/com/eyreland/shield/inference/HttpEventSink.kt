@@ -96,8 +96,8 @@ class HttpEventSink(
             )
         }
         logger.info(
-            "Shield 事件 sink 已启动：endpoint=$endpoint，schema=${config.schemaVersion}," +
-                " batch=${config.batchSize}，spool<=${config.spoolMaxBytes} bytes/${config.spoolTtlMs} ms",
+            "Shield 事件 sink 已启动：endpoint=$endpoint，batch=${config.batchSize}，" +
+                "spool<=${config.spoolMaxBytes} bytes/${config.spoolTtlMs} ms",
         )
     }
 
@@ -113,7 +113,6 @@ class HttpEventSink(
     }
 
     override fun enqueueTelemetry(telemetry: CollectionTelemetry): Boolean {
-        if (config.schemaVersion != "shield.events.v2") return false
         if (!started) {
             queueDropped.incrementAndGet()
             return false
@@ -124,7 +123,6 @@ class HttpEventSink(
     }
 
     override fun enqueueInterventionReceipt(receipt: InterventionReceipt): Boolean {
-        if (config.schemaVersion != "shield.events.v2") return false
         if (!started) {
             queueDropped.incrementAndGet()
             return false
@@ -227,7 +225,6 @@ class HttpEventSink(
             serverId = serverId,
             proxyMode = proxyMode,
             serverVersion = serverVersion.get(),
-            schemaVersion = config.schemaVersion,
             nowMs = clock.millis(),
         )
         val oversized = encoded.transmittedBody.size > config.maxCompressedBatchBytes ||

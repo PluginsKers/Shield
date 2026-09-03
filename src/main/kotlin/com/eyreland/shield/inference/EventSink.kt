@@ -38,10 +38,10 @@ interface EventSink {
     /** 捕获线程只调用非阻塞 offer。 */
     fun enqueue(sample: PacketSample): Boolean
 
-    /** v2 周期采集证明；v1 兼容模式下安全忽略。 */
+    /** 周期采集证明与事件共用有界传输链路。 */
     fun enqueueTelemetry(telemetry: CollectionTelemetry): Boolean
 
-    /** v2 玩家干预回执；与事件共用有界持久化链路。 */
+    /** 玩家干预回执与事件共用有界持久化链路。 */
     fun enqueueInterventionReceipt(receipt: InterventionReceipt): Boolean
 
     /** 与事件进入同一有界队列，保证会话关闭不会主动越过已入队事件。 */

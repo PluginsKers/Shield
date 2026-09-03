@@ -22,8 +22,7 @@ class EventBatchEncoderTest {
             ),
             serverId = "survival-test",
             proxyMode = "velocity",
-            serverVersion = "1.21.11",
-            schemaVersion = "shield.events.v1",
+            serverVersion = "test",
             nowMs = 1_785_300_000_000,
             batchId = batchId,
         )
@@ -33,16 +32,16 @@ class EventBatchEncoderTest {
 
         assertEquals(1, encoded.eventCount)
         assertEquals(1, encoded.closedSessionCount)
-        assertTrue(json.contains("\"schema_version\":\"shield.events.v1\""))
+        assertTrue(json.contains("\"schema_version\":\"shield.events.v2\""))
         assertTrue(json.contains("\"batch_id\":\"$batchId\""))
         assertTrue(json.contains("\"packet_type\":\"POSITION_LOOK\""))
         assertTrue(json.contains("\"label\":\"unlabeled\""))
         assertTrue(json.contains("\"closed_sessions\":[\"$sessionId\"]"))
-        assertFalse(json.contains("session_monotonic_us"))
+        assertTrue(json.contains("\"session_monotonic_us\":0"))
     }
 
     @Test
-    fun `v2 encodes monotonic semantics freshness and collection proof`() {
+    fun `encodes semantics freshness collection proof and intervention receipts`() {
         val playerId = UUID.fromString("00000000-0000-0000-0000-000000000010")
         val encoded = EventBatchEncoder.encode(
             records = listOf(
@@ -67,8 +66,7 @@ class EventBatchEncoderTest {
             ),
             serverId = "survival-test",
             proxyMode = "velocity",
-            serverVersion = "26.2.0",
-            schemaVersion = "shield.events.v2",
+            serverVersion = "test",
             nowMs = 1_785_300_001_000,
         )
         val json = GZIPInputStream(
@@ -107,7 +105,7 @@ internal fun sample(
     world = "world",
     gameMode = "SURVIVAL",
     observedProtocol = 774,
-    serverVersion = "1.21.11",
+    serverVersion = "test",
     category = CaptureCategory.MOVEMENT,
     packetType = "POSITION_LOOK",
     source = "client_packet",

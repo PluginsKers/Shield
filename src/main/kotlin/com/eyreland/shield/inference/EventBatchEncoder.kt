@@ -25,12 +25,13 @@ internal data class EncodedBatch(
 )
 
 internal object EventBatchEncoder {
+    private const val SCHEMA_VERSION = "shield.events.v2"
+
     fun encode(
         records: List<OutboundRecord>,
         serverId: String,
         proxyMode: String,
         serverVersion: String,
-        schemaVersion: String,
         nowMs: Long,
         batchId: UUID = UUID.randomUUID(),
     ): EncodedBatch {
@@ -41,19 +42,15 @@ internal object EventBatchEncoder {
         val interventionReceipts = ArrayList<Map<String, Any?>>()
         for (record in records) {
             when (record) {
-                is OutboundRecord.Event -> events += eventMap(record.sample, schemaVersion)
+                is OutboundRecord.Event -> events += eventMap(record.sample)
                 is OutboundRecord.SessionClosed -> closedSessions += record.sessionId.toString()
-                is OutboundRecord.Telemetry -> if (schemaVersion == "shield.events.v2") {
-                    telemetry += telemetryMap(record.value)
-                }
-                is OutboundRecord.InterventionHandled -> if (schemaVersion == "shield.events.v2") {
-                    interventionReceipts += receiptMap(record.receipt)
-                }
+                is OutboundRecord.Telemetry -> telemetry += telemetryMap(record.value)
+                is OutboundRecord.InterventionHandled -> interventionReceipts += receiptMap(record.receipt)
             }
         }
         val body = JsonEncoder.encode(
             linkedMapOf(
-                "schema_version" to schemaVersion,
+                "schema_version" to SCHEMA_VERSION,
                 "batch_id" to batchId.toString(),
                 "sent_at_ms" to nowMs,
                 "server_id" to serverId,
@@ -61,12 +58,9 @@ internal object EventBatchEncoder {
                 "server_version" to serverVersion,
                 "events" to events,
                 "closed_sessions" to closedSessions,
-            ).apply {
-                if (schemaVersion == "shield.events.v2") {
-                    put("collection_telemetry", telemetry)
-                    put("intervention_receipts", interventionReceipts)
-                }
-            },
+                "collection_telemetry" to telemetry,
+                "intervention_receipts" to interventionReceipts,
+            ),
         ).toByteArray(StandardCharsets.UTF_8)
         return EncodedBatch(
             batchId = batchId,
@@ -82,7 +76,7 @@ internal object EventBatchEncoder {
         )
     }
 
-    private fun eventMap(sample: PacketSample, schemaVersion: String): Map<String, Any?> = linkedMapOf(
+    private fun eventMap(sample: PacketSample): Map<String, Any?> = linkedMapOf(
         "captured_at_ms" to sample.capturedAtMs,
         "session_id" to sample.sessionId.toString(),
         "session_sequence" to sample.sessionSequence,
@@ -116,19 +110,16 @@ internal object EventBatchEncoder {
         "speed_bps" to sample.speedBps,
         "horizontal_speed_bps" to sample.horizontalSpeedBps,
         "movement_changed" to sample.movementChanged,
+        "session_monotonic_us" to sample.sessionMonotonicUs,
+        "source" to sample.source,
+        "event_type" to sample.eventType,
+        "target_entity_uuid" to sample.targetEntityUuid?.toString(),
+        "target_entity_type" to sample.targetEntityType,
+        "position_updated" to sample.positionUpdated,
+        "rotation_updated" to sample.rotationUpdated,
+        "ground_updated" to sample.groundUpdated,
         "payload" to sample.payload,
-    ).apply {
-        if (schemaVersion == "shield.events.v2") {
-            put("session_monotonic_us", sample.sessionMonotonicUs)
-            put("source", sample.source)
-            put("event_type", sample.eventType)
-            put("target_entity_uuid", sample.targetEntityUuid?.toString())
-            put("target_entity_type", sample.targetEntityType)
-            put("position_updated", sample.positionUpdated)
-            put("rotation_updated", sample.rotationUpdated)
-            put("ground_updated", sample.groundUpdated)
-        }
-    }
+    )
 
     private fun telemetryMap(value: CollectionTelemetry): Map<String, Any?> = linkedMapOf(
         "captured_at_ms" to value.capturedAtMs,

@@ -459,7 +459,6 @@ class HttpEventSinkTest {
         quarantineMaxBatches = 10,
         maxCompressedBatchBytes = 1_500_000,
         maxUncompressedBatchBytes = 10 * 1024 * 1024,
-        schemaVersion = "shield.events.v2",
     )
 
     private fun await(timeout: Duration, condition: () -> Boolean) {

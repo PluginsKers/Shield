@@ -54,7 +54,6 @@ class HttpEventSinkE2eTest {
             quarantineMaxBatches = 10,
             maxCompressedBatchBytes = 1_500_000,
             maxUncompressedBatchBytes = 10 * 1024 * 1024,
-            schemaVersion = "shield.events.v2",
         )
         val executor = Executors.newSingleThreadScheduledExecutor()
         val sink = HttpEventSink(

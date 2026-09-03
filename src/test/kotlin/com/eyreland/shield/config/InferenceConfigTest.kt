@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
 
 class InferenceConfigTest {
     @Test
-    fun `legacy config uses HTTPS defaults when secret environment exists`() {
+    fun `missing section uses HTTPS defaults when secret environment exists`() {
         val config = InferenceConfig.from(null) { "x".repeat(32) }
 
         assertTrue(config.enabled)
@@ -16,7 +16,6 @@ class InferenceConfigTest {
             "https://api.i5res.com/shield/v1/events",
             config.endpoint.toString(),
         )
-        assertEquals("shield.events.v2", config.schemaVersion)
         assertEquals(500, config.batchSize)
         assertEquals(60_000, config.requestTimeoutMs)
     }
@@ -38,5 +37,17 @@ class InferenceConfigTest {
         val config = InferenceConfig.from(section) { "environment-" + "y".repeat(32) }
 
         assertEquals("inline-" + "x".repeat(32), config.hmacSecret)
+    }
+
+    @Test
+    fun `accepts a custom secure endpoint path`() {
+        val section = YamlConfiguration().apply {
+            set("endpoint", "https://example.com/custom/ingest")
+            set("hmac-secret", "x".repeat(32))
+        }
+
+        val config = InferenceConfig.from(section)
+
+        assertEquals("https://example.com/custom/ingest", config.endpoint.toString())
     }
 }
