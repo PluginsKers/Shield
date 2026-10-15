@@ -2,9 +2,25 @@
 
 Paper、Folia、Purpur 行为采集插件，将事件发送到 Shield 服务进行分析和人工复查，不执行封禁。
 
+## 运行要求
+
+插件使用 Paper 1.21.7 API 与 Java 21 字节码。Paper、Folia、Purpur 共用同一个 JAR；其他分支须保留对应 Paper API 与区域调度语义。原生 Spigot/Bukkit、Fabric、Forge 和代理端不能直接加载。
+
+以下组合已检查插件加载、采集初始化、`/shield reload` 和正常停服：
+
+| 服务端 | Minecraft | Java | ProtocolLib |
+| --- | --- | --- | --- |
+| Paper | 1.21.7 | 21 | 5.4.0 |
+| Folia | 1.21.8 | 21 | 5.4.0 |
+| Paper、Folia、Purpur | 26.3 | 25 | 5.5.0-SNAPSHOT-d89a5de（Paper 构建） |
+
+其他 Minecraft 版本与服务端分支尚未逐项验证。ProtocolLib 必须明确支持目标 Minecraft 版本；其当前 Paper 开发构建要求 26.2 或更新版本，不能用于较旧服务端。
+
+上述检查不覆盖真实玩家的跨区域移动、战斗、警告确认或线上推理接口。安装前须在目标服务端验证这些流程。
+
 ## 构建
 
-Java 与服务端版本要求见 [build.gradle.kts](build.gradle.kts)。
+构建使用 JDK 25，运行环境见上表。依赖声明见 [build.gradle.kts](build.gradle.kts)。
 
 ```bash
 ./gradlew build
