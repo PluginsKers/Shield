@@ -65,6 +65,7 @@ tasks {
 
     shadowJar {
         archiveClassifier.set("")
+        into("META-INF") { from("LICENSE", "NOTICE") }
     }
 
     build {

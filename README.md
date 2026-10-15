@@ -54,3 +54,9 @@ Windows 使用 `.\gradlew.bat build`，产物为 `build/libs/shield-<version>.ja
 `server-key` 绑定服务器身份与现有上报队列，变更后需要重启服务器；此时整个重载会被拒绝，行动配置也保持原值。
 
 - [配置说明](src/main/resources/config.yml)
+
+## License
+
+Copyright (C) 2026 PluginsKers.
+
+Project code is licensed under [AGPL-3.0-only](LICENSE), with a Minecraft server and ProtocolLib linking permission. See [NOTICE](NOTICE) for that permission and third-party notices included in the JAR.
