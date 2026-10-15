@@ -34,6 +34,12 @@ Windows 使用 `.\gradlew.bat build`，产物为 `build/libs/shield-<version>.ja
 2. 在 [Shield 后台](https://shield.i5res.com/dashboard#servers) 创建服务器，将接入配置保存到 `plugins/shield/config.yml`。
 3. 重启服务端，执行 `/shield` 查看状态。
 
+## 数据与服务
+
+本插件需要 Shield 账户生成的接入密钥。行为分析由远程服务完成，插件不提供离线推理。
+
+插件通过 HTTPS 发送玩家 UUID、名称、世界、游戏模式、位置、行为事件和行动回执，不采集聊天内容或自定义载荷。传输失败时，事件在有容量与保留期限限制的本地队列暂存并重试。
+
 ## 玩家行动
 
 `config.yml` 的 `interventions` 配置本地行动策略，修改后执行 `/shield reload` 生效。仅配置 `server-key` 时使用默认值。
