@@ -8,10 +8,12 @@ import kotlin.test.assertTrue
 
 class ShieldCommandViewTest {
     @Test
-    fun `root command is status and reload is the only subcommand`() {
+    fun `root reports status and reload accepts no extra arguments`() {
         assertEquals(ShieldCommandAction.STATUS, ShieldCommandView.action(emptyList()))
         assertEquals(ShieldCommandAction.USAGE, ShieldCommandView.action(listOf("STATUS")))
         assertEquals(ShieldCommandAction.RELOAD, ShieldCommandView.action(listOf("reload")))
+        assertEquals(ShieldCommandAction.RELOAD, ShieldCommandView.action(listOf("RELOAD")))
+        assertEquals(ShieldCommandAction.USAGE, ShieldCommandView.action(listOf("reload", "extra")))
         assertEquals(ShieldCommandAction.USAGE, ShieldCommandView.action(listOf("help")))
         assertEquals(
             ShieldCommandAction.USAGE,
@@ -20,20 +22,13 @@ class ShieldCommandViewTest {
     }
 
     @Test
-    fun `completion exposes only the actionable reload command`() {
-        assertEquals(listOf("reload"), ShieldCommandView.suggestions(listOf("")))
-        assertEquals(listOf("reload"), ShieldCommandView.suggestions(listOf("re")))
-        assertEquals(emptyList(), ShieldCommandView.suggestions(listOf("s")))
-        assertEquals(emptyList(), ShieldCommandView.suggestions(listOf("reload", "extra")))
-    }
-
-    @Test
-    fun `command copy avoids decorative separators`() {
+    fun `command copy uses half width punctuation without decorative separators`() {
         val messages = buildList {
             add(ShieldCommandView.USAGE)
             add(ShieldCommandView.NO_PERMISSION)
-            add(ShieldCommandView.RELOAD_SUCCESS)
-            add(ShieldCommandView.reloadFailure(null))
+            add(ShieldCommandView.RELOADED)
+            add(ShieldCommandView.INVALID_YAML)
+            add(ShieldCommandView.UNREADABLE_CONFIG)
             addAll(ShieldCommandView.status(false, null, 0))
             addAll(ShieldCommandView.status(true, stats(), 0))
             addAll(
@@ -48,6 +43,7 @@ class ShieldCommandViewTest {
 
         messages.forEach { message ->
             assertTrue(separators.none(message::contains), message)
+            assertTrue(message.none { it in "，。：；！？（）、" }, message)
         }
     }
 
@@ -61,8 +57,9 @@ class ShieldCommandViewTest {
 
         assertEquals(
             listOf(
-                "§fShield 运行中§7。已发送 §f1,234§7 批、§f56,789§7 个事件，" +
-                    "磁盘待发送 §f2§7 批；内存待发送 §f3§7 条记录。",
+                "§7采集: §f运行中",
+                "§7已发送: §f1,234§7 批, §f56,789§7 个事件",
+                "§7待发送: §f2§7 批 (磁盘), §f3§7 条记录 (内存)",
             ),
             lines,
         )
@@ -72,15 +69,16 @@ class ShieldCommandViewTest {
     }
 
     @Test
-    fun `disabled and idle states stay one line`() {
+    fun `disabled transport and idle capture report their state`() {
         assertEquals(
-            listOf("§eShield 事件传输未启用§7。"),
+            listOf("§e事件传输未启用"),
             ShieldCommandView.status(false, null, 0),
         )
         assertEquals(
             listOf(
-                "§eShield 采集未运行§7。已发送 §f1,234§7 批、§f56,789§7 个事件，" +
-                    "磁盘待发送 §f2§7 批；内存待发送 §f0§7 条记录。",
+                "§7采集: §e未运行",
+                "§7已发送: §f1,234§7 批, §f56,789§7 个事件",
+                "§7待发送: §f2§7 批 (磁盘), §f0§7 条记录 (内存)",
             ),
             ShieldCommandView.status(false, stats(), 0),
         )
@@ -94,9 +92,9 @@ class ShieldCommandViewTest {
             queuedRecords = 0,
         )
 
-        assertEquals(2, lines.size)
-        assertTrue(lines[0].startsWith("§fShield 运行中"))
-        assertEquals("§7最近一次 HTTP 状态为 §f429§7。", lines[1])
+        assertEquals(4, lines.size)
+        assertEquals("§7采集: §f运行中", lines[0])
+        assertEquals("§7最近 HTTP 状态: §e429", lines[3])
     }
 
     @Test
@@ -117,13 +115,17 @@ class ShieldCommandViewTest {
             queuedRecords = 0,
         )
 
-        assertEquals(2, lines.size)
-        assertTrue(lines[0].startsWith("§fShield 运行中"))
+        assertEquals(8, lines.size)
+        assertEquals("§7采集: §f运行中", lines[0])
         assertEquals(
-            "§7本次运行累计：内存丢弃 §f3§7 条记录；" +
-                "磁盘丢弃 §f2§7 批、§f20§7 个事件；传输失败 §f9§7 次；" +
-                "当前隔离 §f1§7 批。",
-            lines[1],
+            listOf(
+                "§7本次运行累计:",
+                "§7  内存丢弃: §f3§7 条记录",
+                "§7  磁盘丢弃: §f2§7 批, §f20§7 个事件",
+                "§7  传输失败: §f9§7 次",
+                "§7当前隔离: §f1§7 批",
+            ),
+            lines.drop(3),
         )
     }
 

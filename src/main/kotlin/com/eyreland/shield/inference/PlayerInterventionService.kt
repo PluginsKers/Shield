@@ -1,31 +1,36 @@
 package com.eyreland.shield.inference
 
 import com.eyreland.shield.config.InterventionConfig
+import io.papermc.paper.dialog.Dialog
+import io.papermc.paper.registry.data.dialog.ActionButton
+import io.papermc.paper.registry.data.dialog.DialogBase
+import io.papermc.paper.registry.data.dialog.action.DialogAction
+import io.papermc.paper.registry.data.dialog.body.DialogBody
+import io.papermc.paper.registry.data.dialog.type.DialogType
 import net.kyori.adventure.text.Component
-import net.kyori.adventure.text.format.NamedTextColor
+import net.kyori.adventure.text.event.ClickCallback
 import org.bukkit.entity.Player
-import org.bukkit.plugin.java.JavaPlugin
+import org.bukkit.plugin.Plugin
 import java.nio.file.Path
 import java.time.Clock
+import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 import java.util.logging.Level
 import java.util.logging.Logger
 
 class PlayerInterventionService(
-    private val plugin: JavaPlugin,
-    initialConfig: InterventionConfig,
+    private val plugin: Plugin,
+    private val config: () -> InterventionConfig,
     ledgerPath: Path,
     private val executor: ScheduledExecutorService,
     private val receiptSink: (InterventionReceipt) -> Boolean,
     private val logger: Logger,
     private val clock: Clock = Clock.systemUTC(),
 ) {
-    private val config = AtomicReference(initialConfig)
     private val ledger = InterventionLedger(ledgerPath)
     private val receiptRetryScheduled = AtomicBoolean()
 
@@ -42,10 +47,6 @@ class PlayerInterventionService(
         started = false
     }
 
-    fun updateConfig(value: InterventionConfig) {
-        config.set(value)
-    }
-
     fun acceptResponse(batchId: UUID, body: ByteArray) {
         accept(InferenceAckDecoder.decode(body, batchId))
     }
@@ -56,7 +57,7 @@ class PlayerInterventionService(
 
     internal fun accept(directives: List<PlayerInterventionDirective>) {
         for (directive in directives) {
-            when (val registration = ledger.register(directive, config.get(), clock.millis())) {
+            when (val registration = ledger.register(directive, config(), clock.millis())) {
                 LedgerRegistration.AlreadyPending -> Unit
                 is LedgerRegistration.Ready -> dispatch(registration.directive)
                 is LedgerRegistration.ReceiptOnly -> enqueueReceipt(registration.receipt)
@@ -86,62 +87,119 @@ class PlayerInterventionService(
                 )
             }
         }.onFailure {
-            logger.log(Level.WARNING, "无法调度玩家干预：${directive.directiveId}", it)
+            logger.log(Level.WARNING, "无法调度玩家干预: ${directive.directiveId}", it)
             finish(directive, InterventionOutcome.INVALID)
         }
     }
 
     private fun apply(player: Player, directive: PlayerInterventionDirective) {
         if (!started) return
-        val current = config.get()
-        val outcome = try {
+        val current = config()
+        try {
             val rejection = ledger.pendingRejection(directive, current, clock.millis())
             if (rejection != null) {
-                rejection
-            } else {
-                when (directive.kind) {
-                    InterventionKind.WARN -> {
-                        player.sendMessage(warningComponent(current))
-                        InterventionOutcome.APPLIED
-                    }
-                    InterventionKind.KICK -> {
-                        player.kick(kickComponent(current))
-                        InterventionOutcome.APPLIED
-                    }
+                finish(directive, rejection)
+                return
+            }
+            when (directive.kind) {
+                InterventionKind.WARN -> showWarningDialog(player, directive, current)
+                InterventionKind.KICK -> {
+                    player.kick(kickComponent(current))
+                    finish(directive, InterventionOutcome.APPLIED)
                 }
             }
         } catch (failure: Throwable) {
-            logger.log(Level.WARNING, "执行玩家干预失败：${directive.directiveId}", failure)
-            InterventionOutcome.INVALID
+            logger.log(Level.WARNING, "执行玩家干预失败: ${directive.directiveId}", failure)
+            finish(directive, InterventionOutcome.INVALID)
         }
-        finish(directive, outcome)
+    }
+
+    private fun showWarningDialog(
+        player: Player,
+        directive: PlayerInterventionDirective,
+        current: InterventionConfig,
+    ) {
+        val nowMs = clock.millis()
+        val remainingMs = directive.expiresAtMs - nowMs
+        if (remainingMs <= 0) {
+            finish(directive, InterventionOutcome.EXPIRED, nowMs)
+            return
+        }
+        val closeAction = DialogAction.customClick(
+            { _, _ ->
+                val handledAtMs = clock.millis()
+                finish(
+                    directive,
+                    if (handledAtMs <= directive.expiresAtMs) {
+                        InterventionOutcome.APPLIED
+                    } else {
+                        InterventionOutcome.EXPIRED
+                    },
+                    handledAtMs,
+                )
+            },
+            ClickCallback.Options.builder()
+                .uses(1)
+                .lifetime(Duration.ofMillis(remainingMs))
+                .build(),
+        )
+        val dialog = Dialog.create { factory ->
+            factory.empty()
+                .base(
+                    DialogBase.builder(warningTitle())
+                        .canCloseWithEscape(false)
+                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
+                        .body(
+                            listOf(
+                                DialogBody.plainMessage(
+                                    Component.text(current.warning.message),
+                                ),
+                            ),
+                        )
+                        .build(),
+                )
+                .type(
+                    DialogType.notice(
+                        ActionButton.builder(Component.text("关闭"))
+                            .action(closeAction)
+                            .build(),
+                    ),
+                )
+        }
+        executor.schedule(
+            { finish(directive, InterventionOutcome.EXPIRED, clock.millis()) },
+            remainingMs,
+            TimeUnit.MILLISECONDS,
+        )
+        player.showDialog(dialog)
     }
 
     private fun finish(
         directive: PlayerInterventionDirective,
         outcome: InterventionOutcome,
+        handledAtMs: Long = clock.millis(),
     ) {
         if (!started) return
         runCatching {
             executor.execute {
                 if (!started) return@execute
-                enqueueReceipt(ledger.complete(directive, outcome, clock.millis()))
+                ledger.complete(directive, outcome, handledAtMs)?.let(::enqueueReceipt)
             }
         }.onFailure {
-            logger.log(Level.WARNING, "无法提交玩家干预回执：${directive.directiveId}", it)
+            logger.log(Level.WARNING, "无法提交玩家干预回执: ${directive.directiveId}", it)
         }
     }
 
     private fun enqueueReceipt(receipt: InterventionReceipt) {
         if (receiptSink(receipt)) return
-        logger.warning("玩家干预回执队列已满，稍后重试：${receipt.directiveId}")
+        logger.warning("玩家干预回执队列已满, 稍后重试: ${receipt.directiveId}")
         scheduleReceiptRetry()
     }
 
     private fun retryPendingReceipts() {
         for (receipt in ledger.pendingReceipts()) {
             if (receiptSink(receipt)) continue
-            logger.warning("玩家干预回执队列仍满，稍后重试：${receipt.directiveId}")
+            logger.warning("玩家干预回执队列仍满, 稍后重试: ${receipt.directiveId}")
             scheduleReceiptRetry()
             return
         }
@@ -165,12 +223,8 @@ class PlayerInterventionService(
     }
 
     internal companion object {
-        fun warningComponent(config: InterventionConfig): Component = Component
-            .text(config.warning.prefix, NamedTextColor.RED)
-            .append(Component.text(" ${config.warning.message}", NamedTextColor.WHITE))
+        fun warningTitle(): Component = Component.text("行为提示")
 
-        fun kickComponent(config: InterventionConfig): Component = Component
-            .text(config.warning.prefix, NamedTextColor.RED)
-            .append(Component.text(" ${config.kick.message}", NamedTextColor.WHITE))
+        fun kickComponent(config: InterventionConfig): Component = Component.text(config.kick.message)
     }
 }

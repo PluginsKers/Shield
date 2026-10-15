@@ -2,11 +2,10 @@ package com.eyreland.shield.config
 
 import org.bukkit.configuration.ConfigurationSection
 import java.net.URI
-import java.nio.file.Path
+import java.util.UUID
 
-/** Shield 到治理服务的有界异步传输配置。 */
+/** shield 到治理服务的有界异步传输配置。 */
 data class InferenceConfig(
-    val enabled: Boolean,
     val endpoint: URI,
     val keyId: String,
     val hmacSecret: String,
@@ -27,139 +26,38 @@ data class InferenceConfig(
     val maxUncompressedBatchBytes: Int,
 ) {
     companion object {
-        private const val DEFAULT_ENDPOINT = "https://api.i5res.com/shield/v1/events"
-        private const val DEFAULT_SECRET_ENV = "SHIELD_INFERENCE_HMAC_SECRET"
-
-        fun from(
-            section: ConfigurationSection?,
-            environment: (String) -> String? = System::getenv,
-        ): InferenceConfig {
-            // 旧配置没有 inference 段时也进入新链路；缺少密钥会让 Shield 自身停用，
-            // 但绝不影响 Minecraft 服务。
-            val enabled = section?.getBoolean("enabled", true) ?: true
-            val endpoint = parseEndpoint(
-                section?.getString("endpoint", DEFAULT_ENDPOINT) ?: DEFAULT_ENDPOINT,
-                section?.getBoolean("allow-insecure-http", false) ?: false,
-            )
-            val keyId = (section?.getString("key-id", "shield-events-1")
-                ?: "shield-events-1").trim()
-            require(keyId.isNotEmpty() && keyId.length <= 128) {
-                "inference.key-id 必须为 1..128 字符"
+        fun from(root: ConfigurationSection): InferenceConfig {
+            require(root.getKeys(false).all { it in setOf("server-key", "interventions") }) {
+                "配置仅支持 server-key 与 interventions"
             }
-            val inlineSecret = section?.getString("hmac-secret")?.trim().orEmpty()
-            val secretEnv = (section?.getString("hmac-secret-env", DEFAULT_SECRET_ENV)
-                ?: DEFAULT_SECRET_ENV).trim()
-            val secret = if (inlineSecret.isNotEmpty()) {
-                inlineSecret
-            } else {
-                require(secretEnv.isNotEmpty()) { "inference.hmac-secret-env 不能为空" }
-                environment(secretEnv)?.trim().orEmpty()
+            val key = root.getString("server-key").orEmpty().trim()
+            val parts = key.removePrefix("shd_").split('.')
+            require(key.startsWith("shd_") &&
+                parts.size == 2 && parts[1].matches(Regex("[0-9a-f]{64}"))) {
+                "server-key 无效, 请从账户后台复制完整接入密钥"
             }
-            if (enabled) {
-                require(secret.length >= 32) {
-                    "inference.hmac-secret 或环境变量 $secretEnv 未配置，或少于 32 字符"
-                }
-            }
-
-            val retryInitialMs = longIn(section, "retry-initial-ms", 1_000, 100, 60_000)
-            val retryMaxMs = longIn(section, "retry-max-ms", 60_000, retryInitialMs, 900_000)
-            val spoolDirectory = (section?.getString("spool-directory", "inference-spool")
-                ?: "inference-spool").trim()
-            validateRelativeDirectory(spoolDirectory)
+            val serverId = runCatching { UUID.fromString(parts[0]).toString() }.getOrNull()
+            require(serverId == parts[0]) { "server-key 中的服务器标识无效" }
             return InferenceConfig(
-                enabled = enabled,
-                endpoint = endpoint,
-                keyId = keyId,
-                hmacSecret = secret,
-                batchSize = intIn(section, "batch-size", 500, 1, 1_000),
-                flushIntervalMs = longIn(section, "flush-interval-ms", 1_000, 100, 60_000),
-                queueCapacity = intIn(section, "queue-capacity", 20_000, 100, 1_000_000),
-                connectTimeoutMs = longIn(section, "connect-timeout-ms", 3_000, 100, 60_000),
-                requestTimeoutMs = longIn(section, "request-timeout-ms", 60_000, 500, 120_000),
-                retryInitialMs = retryInitialMs,
-                retryMaxMs = retryMaxMs,
-                maxSendBatchesPerCycle = intIn(section, "max-send-batches-per-cycle", 4, 1, 100),
-                spoolDirectory = spoolDirectory,
-                spoolMaxBytes = longIn(
-                    section,
-                    "spool-max-bytes",
-                    256L * 1024 * 1024,
-                    1024L * 1024,
-                    10L * 1024 * 1024 * 1024,
-                ),
-                spoolMaxBatches = intIn(section, "spool-max-batches", 4_096, 1, 100_000),
-                spoolTtlMs = longIn(
-                    section,
-                    "spool-ttl-ms",
-                    6L * 60 * 60 * 1_000,
-                    60_000,
-                    30L * 24 * 60 * 60 * 1_000,
-                ),
-                quarantineMaxBatches = intIn(section, "quarantine-max-batches", 32, 1, 1_000),
-                maxCompressedBatchBytes = intIn(
-                    section,
-                    "max-compressed-batch-bytes",
-                    1_500_000,
-                    64 * 1024,
-                    2 * 1024 * 1024,
-                ),
-                maxUncompressedBatchBytes = intIn(
-                    section,
-                    "max-uncompressed-batch-bytes",
-                    10 * 1024 * 1024,
-                    256 * 1024,
-                    12 * 1024 * 1024,
-                ),
+                endpoint = URI("https://api.i5res.com/shield/v1/events"),
+                keyId = parts[0],
+                hmacSecret = parts[1],
+                batchSize = 500,
+                flushIntervalMs = 1_000,
+                queueCapacity = 20_000,
+                connectTimeoutMs = 3_000,
+                requestTimeoutMs = 60_000,
+                retryInitialMs = 1_000,
+                retryMaxMs = 60_000,
+                maxSendBatchesPerCycle = 4,
+                spoolDirectory = "inference-spool",
+                spoolMaxBytes = 256L * 1024 * 1024,
+                spoolMaxBatches = 4_096,
+                spoolTtlMs = 6L * 60 * 60 * 1_000,
+                quarantineMaxBatches = 32,
+                maxCompressedBatchBytes = 1_500_000,
+                maxUncompressedBatchBytes = 10 * 1024 * 1024,
             )
-        }
-
-        private fun parseEndpoint(raw: String, allowInsecureHttp: Boolean): URI {
-            val endpoint = runCatching { URI(raw.trim()) }
-                .getOrElse { throw IllegalArgumentException("inference.endpoint 不是合法 URI", it) }
-            require(endpoint.host != null && endpoint.userInfo == null && endpoint.query == null && endpoint.fragment == null) {
-                "inference.endpoint 必须是无账号、query 和 fragment 的绝对地址"
-            }
-            val loopback = endpoint.host == "127.0.0.1" || endpoint.host == "localhost"
-            require(endpoint.scheme == "https" || (endpoint.scheme == "http" && (allowInsecureHttp || loopback))) {
-                "inference.endpoint 必须使用 HTTPS"
-            }
-            return endpoint
-        }
-
-        private fun validateRelativeDirectory(value: String) {
-            require(value.isNotEmpty()) { "inference.spool-directory 不能为空" }
-            val path = Path.of(value).normalize()
-            require(!path.isAbsolute && !path.startsWith("..")) {
-                "inference.spool-directory 必须位于插件目录内"
-            }
-        }
-
-        private fun intIn(
-            section: ConfigurationSection?,
-            path: String,
-            default: Int,
-            minimum: Int,
-            maximum: Int,
-        ): Int {
-            val value = section?.getInt(path, default) ?: default
-            require(value in minimum..maximum) {
-                "inference.$path 必须在 $minimum..$maximum"
-            }
-            return value
-        }
-
-        private fun longIn(
-            section: ConfigurationSection?,
-            path: String,
-            default: Long,
-            minimum: Long,
-            maximum: Long,
-        ): Long {
-            val value = section?.getLong(path, default) ?: default
-            require(value in minimum..maximum) {
-                "inference.$path 必须在 $minimum..$maximum"
-            }
-            return value
         }
     }
 }

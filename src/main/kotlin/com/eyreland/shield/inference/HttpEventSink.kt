@@ -96,8 +96,8 @@ class HttpEventSink(
             )
         }
         logger.info(
-            "Shield 事件 sink 已启动：endpoint=$endpoint，batch=${config.batchSize}，" +
-                "spool<=${config.spoolMaxBytes} bytes/${config.spoolTtlMs} ms",
+            "事件传输已启动: 接口=$endpoint, 批次大小=${config.batchSize}, " +
+                "磁盘队列上限=${config.spoolMaxBytes} 字节, 保留时间=${config.spoolTtlMs} 毫秒",
         )
     }
 
@@ -174,7 +174,7 @@ class HttpEventSink(
             false
         }
         if (!acquired) {
-            logger.warning("事件 I/O 未在 2 秒内停止；跳过关闭前内存持久化")
+            logger.warning("事件 I/O 未在 2 秒内停止; 跳过关闭前内存持久化")
             return
         }
         try {
@@ -214,7 +214,7 @@ class HttpEventSink(
                 val events = records.count { it is OutboundRecord.Event }
                 spoolDroppedBatches.incrementAndGet()
                 spoolDroppedEvents.addAndGet(events.toLong())
-                logger.log(Level.SEVERE, "事件 spool 写入失败，丢弃 ${records.size} 条队列记录", t)
+                logger.log(Level.SEVERE, "事件磁盘队列写入失败, 丢弃 ${records.size} 条记录", t)
             }
         }
     }
@@ -239,8 +239,8 @@ class HttpEventSink(
             spoolDroppedBatches.incrementAndGet()
             spoolDroppedEvents.addAndGet(encoded.eventCount.toLong())
             logger.severe(
-                "单条事件超过请求体上限，已丢弃：compressed=${encoded.transmittedBody.size}," +
-                    " uncompressed=${encoded.uncompressedBytes}",
+                "单条事件超过请求体上限, 已丢弃: 压缩后=${encoded.transmittedBody.size} 字节, " +
+                    "压缩前=${encoded.uncompressedBytes} 字节",
             )
             return
         }
@@ -300,7 +300,7 @@ class HttpEventSink(
             .timeout(Duration.ofMillis(config.requestTimeoutMs))
             .header("Content-Type", "application/json")
             .header("Content-Encoding", "gzip")
-            .header("User-Agent", "Shield/${javaClass.`package`.implementationVersion ?: "dev"}")
+            .header("User-Agent", "shield/${javaClass.`package`.implementationVersion ?: "dev"}")
             .header("X-Shield-Key-Id", signed.keyId)
             .header("X-Shield-Timestamp", signed.timestamp.toString())
             .header("X-Shield-Nonce", signed.nonce)
@@ -354,7 +354,7 @@ class HttpEventSink(
             sentEvents.addAndGet(entry.eventCount.toLong())
             lastSuccessAtMs.set(clock.millis())
             if (consecutiveFailures > 0) {
-                logger.info("事件接口已恢复（连续失败 $consecutiveFailures）")
+                logger.info("事件接口已恢复 (此前连续失败 $consecutiveFailures 次)")
             }
             consecutiveFailures = 0
             nextAttemptAtMs = 0
@@ -370,7 +370,7 @@ class HttpEventSink(
                 .toLongOrNull()
                 ?.times(1_000)
             scheduleRetry(clock.millis(), retryAfterMs)
-            logFailure("事件接口暂时失败：HTTP $status")
+            logFailure("事件接口暂时失败: HTTP $status")
             return SendResult.RETRY_LATER
         }
 
@@ -384,7 +384,7 @@ class HttpEventSink(
         // 避免在配置修复前快速清空整个 pending。
         consecutiveFailures += 1
         nextAttemptAtMs = clock.millis() + config.retryMaxMs
-        logFailure("事件批次被隔离：HTTP $status")
+        logFailure("事件批次被隔离: HTTP $status")
         return SendResult.REJECTED
     }
 
@@ -415,7 +415,7 @@ class HttpEventSink(
         Files.deleteIfExists(entry.path)
         spoolDroppedBatches.incrementAndGet()
         spoolDroppedEvents.addAndGet(entry.eventCount.toLong())
-        logger.severe("丢弃 pending 批次（$reason）：${entry.path.name}")
+        logger.severe("丢弃待发送批次 ($reason): ${entry.path.name}")
     }
 
     private fun enforceBounds(nowMs: Long) {
@@ -551,9 +551,9 @@ class HttpEventSink(
         if (failures != 1) return
         val detail = failure?.let {
             val summary = it.message?.lineSequence()?.firstOrNull()?.take(200)
-            "：${it.javaClass.simpleName}${summary?.let { value -> "：$value" }.orEmpty()}"
+            ": ${it.javaClass.simpleName}${summary?.let { value -> ": $value" }.orEmpty()}"
         }.orEmpty()
-        logger.warning("$message$detail（后续重复已静默）")
+        logger.warning("$message$detail (后续重复已静默)")
     }
 
     private data class SpoolEntry(

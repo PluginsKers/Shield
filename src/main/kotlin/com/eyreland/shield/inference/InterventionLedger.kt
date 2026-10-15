@@ -37,7 +37,7 @@ internal class InterventionLedger(
         val existingState = values.getProperty(directiveKey(directive.directiveId, "state"))
         if (existingState != null) {
             require(storedDirective(directive.directiveId) == directive) {
-                "directive_id 被复用于不同内容：${directive.directiveId}"
+                "directive_id 被复用于不同内容: ${directive.directiveId}"
             }
         }
         when (existingState) {
@@ -107,9 +107,9 @@ internal class InterventionLedger(
         directive: PlayerInterventionDirective,
         outcome: InterventionOutcome,
         nowMs: Long,
-    ): InterventionReceipt {
+    ): InterventionReceipt? {
         if (values.getProperty(directiveKey(directive.directiveId, "state")) == "handled") {
-            return receipt(directive)
+            return null
         }
         return completeInternal(directive, outcome, nowMs)
     }
@@ -257,7 +257,7 @@ internal class InterventionLedger(
     private fun persist() {
         val target = path.toAbsolutePath().normalize()
         val temporary = target.resolveSibling(".${target.fileName}.tmp")
-        Files.newOutputStream(temporary).use { values.store(it, "Shield intervention ledger") }
+        Files.newOutputStream(temporary).use { values.store(it, "shield intervention ledger") }
         try {
             Files.move(
                 temporary,

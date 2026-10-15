@@ -14,7 +14,7 @@ enum class InterventionKind(val wireName: String) {
 
     companion object {
         fun fromWire(value: String): InterventionKind = entries.firstOrNull { it.wireName == value }
-            ?: throw IllegalArgumentException("不支持的干预类型：$value")
+            ?: throw IllegalArgumentException("不支持的干预类型: $value")
     }
 }
 

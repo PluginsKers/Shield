@@ -7,7 +7,6 @@ import com.comphenix.protocol.events.ListenerPriority
 import com.comphenix.protocol.events.PacketAdapter
 import com.comphenix.protocol.events.PacketEvent
 import com.eyreland.shield.config.CaptureConfig
-import com.eyreland.shield.config.CaptureSubject
 import com.eyreland.shield.config.PacketRule
 import com.eyreland.shield.inference.EventSink
 import com.eyreland.shield.inference.CollectionTelemetry
@@ -59,11 +58,6 @@ class PacketCaptureService(
         private set
 
     fun start() {
-        if (!config.enabled) {
-            logger.info("采集由 capture.enabled 显式关闭")
-            return
-        }
-
         val pm = ProtocolLibrary.getProtocolManager()
         protocolManager = pm
         serverVersion = runCatching { pm.minecraftVersion.version }.getOrDefault("unknown")
@@ -98,10 +92,10 @@ class PacketCaptureService(
         }
 
         if (unsupported.isNotEmpty()) {
-            logger.warning("当前 ProtocolLib/Minecraft 不支持或 Shield 未识别的显式数据包: ${unsupported.joinToString()}")
+            logger.warning("当前 ProtocolLib/Minecraft 不支持或未识别的显式数据包: ${unsupported.joinToString()}")
         }
         if (selectedTypes.isEmpty()) {
-            logger.warning("显式数据包白名单为空或均不受支持，采集未启动")
+            logger.warning("显式数据包白名单为空或均不受支持, 采集未启动")
             return
         }
 
@@ -122,8 +116,8 @@ class PacketCaptureService(
 
         val categories = active.mapNotNull { PacketCatalog.definitions[it]?.category?.key }.toSortedSet()
         logger.info(
-            "已启用 ${active.size} 个显式采集包、${listenedTypes.size - selectedTypes.size} 个仅观察包" +
-                "（${categories.joinToString()}，server=$serverVersion，proxy=${config.proxyMode}）",
+            "已启用 ${active.size} 个显式采集包, ${listenedTypes.size - selectedTypes.size} 个仅观察包" +
+                " (${categories.joinToString()}, 服务器版本=$serverVersion, 代理模式=${config.proxyMode})",
         )
     }
 
@@ -185,7 +179,7 @@ class PacketCaptureService(
         } catch (t: Throwable) {
             val failures = decodeFailed.incrementAndGet()
             if (failures <= 3 || failures % 1_000L == 0L) {
-                logger.log(Level.WARNING, "解码 ${definition.name} 失败（累计 $failures）", t)
+                logger.log(Level.WARNING, "解码 ${definition.name} 失败 (累计 $failures)", t)
             }
             return
         }
@@ -200,14 +194,10 @@ class PacketCaptureService(
             ?.let { runCatching { it.getProtocolVersion(player) }.getOrNull() }
             ?.takeIf { it >= 0 }
             ?.also { observedProtocols.putIfAbsent(uuid, it) }
-        val subject = CaptureSubject(uuid, context.playerName, context.world, context.gameMode, observedProtocol)
-        if (!config.filter.allows(subject)) {
+        if (!config.allowsGameMode(context.gameMode)) {
             return
         }
         if (afk.isAfk(uuid, nowMs)) {
-            return
-        }
-        if (!selectedRule.allowsAction(decoded.action)) {
             return
         }
         if (!rateLimiter.allow(uuid, selectedRule, nowNanos)) {
@@ -293,14 +283,7 @@ class PacketCaptureService(
         val context = contexts.get(playerUuid) ?: return false
         if (observedProtocol != null) observedProtocols.putIfAbsent(playerUuid, observedProtocol)
         val protocol = observedProtocol ?: observedProtocols[playerUuid]
-        val subject = CaptureSubject(
-            playerUuid,
-            context.playerName,
-            context.world,
-            context.gameMode,
-            protocol,
-        )
-        if (!config.filter.allows(subject)) {
+        if (!config.allowsGameMode(context.gameMode)) {
             return false
         }
 
@@ -376,17 +359,7 @@ class PacketCaptureService(
         }
     }
 
-    private fun isEligible(context: CaptureContext): Boolean {
-        return config.filter.allows(
-            CaptureSubject(
-                context.playerUuid,
-                context.playerName,
-                context.world,
-                context.gameMode,
-                observedProtocols[context.playerUuid],
-            ),
-        )
-    }
+    private fun isEligible(context: CaptureContext): Boolean = config.allowsGameMode(context.gameMode)
 
     private fun emitCollectionTelemetry() {
         if (!enabled) return

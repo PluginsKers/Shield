@@ -12,7 +12,7 @@ data class HmacHeaders(
     val signature: String,
 )
 
-/** 与 Shield-Inference 完全一致的传输体 HMAC-SHA256。 */
+/** 与 shield-inference 完全一致的传输体 HMAC-SHA256。 */
 object HmacSigner {
     fun sign(
         keyId: String,

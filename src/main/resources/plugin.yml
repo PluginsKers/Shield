@@ -1,20 +1,20 @@
-name: Shield
+name: shield
 version: '${version}'
 main: com.eyreland.shield.ShieldPlugin
-api-version: '1.21'
+api-version: '1.21.7'
 folia-supported: true
-description: '艾尔大陆：在线反作弊事件采集与玩家干预'
+description: '艾尔大陆反作弊核心插件'
 author: PluginsKers
-website: https://www.i5res.com
+website: https://shield.i5res.com
 depend: [ProtocolLib]
 
 commands:
   shield:
-    description: 查看 Shield 请求链路状态或重载采集与玩家干预策略
+    description: 查看 shield 状态或重载行动配置
     permission: shield.admin
     usage: '/shield [reload]'
 
 permissions:
   shield.admin:
-    description: 允许查看 Shield 状态并重载采集与玩家干预策略
+    description: 允许查看 shield 状态与重载行动配置
     default: op

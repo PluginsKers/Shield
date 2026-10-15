@@ -26,7 +26,7 @@ data class DecodedPacket(
 )
 
 /**
- * Shield 支持的稳定语义目录。
+ * shield 支持的稳定语义目录。
  *
  * 目录只保存字符串名称，启动时再从当前 ProtocolLib 的 Play.Client 枚举解析 PacketType。
  * 因此 1.21.11 的 USE_ENTITY 合并包和 26.1 的 ATTACK/USE_ENTITY 拆分包可以同时声明，

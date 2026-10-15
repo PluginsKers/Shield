@@ -7,6 +7,8 @@ import org.bukkit.command.Command
 import org.bukkit.command.CommandExecutor
 import org.bukkit.command.CommandSender
 import org.bukkit.command.TabCompleter
+import org.bukkit.configuration.InvalidConfigurationException
+import java.io.IOException
 import java.util.Locale
 
 internal enum class ShieldCommandAction {
@@ -16,22 +18,15 @@ internal enum class ShieldCommandAction {
 }
 
 internal object ShieldCommandView {
-    const val USAGE = "§7用法：/shield [reload]"
-    const val NO_PERMISSION = "§c你没有权限管理 Shield。"
-    const val RELOAD_SUCCESS = "§aShield 已重载采集与玩家干预策略§7。传输配置变更仍需重启服务器。"
-
-    fun reloadFailure(reason: String?): String = "§cShield 重载失败§7：${reason ?: "请查看控制台"}"
-
+    const val USAGE = "§e用法: §f/shield [reload]"
+    const val NO_PERMISSION = "§c你没有权限使用此命令"
+    const val RELOADED = "§f行动配置已重载"
+    const val INVALID_YAML = "§c配置重载失败, 保留原配置: config.yml 的 YAML 格式错误"
+    const val UNREADABLE_CONFIG = "§c配置重载失败, 保留原配置: 无法读取 config.yml"
     fun action(args: List<String>): ShieldCommandAction = when {
         args.isEmpty() -> ShieldCommandAction.STATUS
         args.size == 1 && args[0].equals("reload", ignoreCase = true) -> ShieldCommandAction.RELOAD
         else -> ShieldCommandAction.USAGE
-    }
-
-    fun suggestions(args: List<String>): List<String> = if (args.size == 1) {
-        listOf("reload").filter { it.startsWith(args[0].lowercase()) }
-    } else {
-        emptyList()
     }
 
     fun status(
@@ -40,24 +35,25 @@ internal object ShieldCommandView {
         queuedRecords: Int,
     ): List<String> {
         if (sinkStats == null) {
-            return listOf("§eShield 事件传输未启用§7。")
+            return listOf("§e事件传输未启用")
         }
 
         val lastHttpFailed = sinkStats.lastHttpStatus?.let { it !in 200..299 } == true
-        val state = if (captureEnabled) "§fShield 运行中" else "§eShield 采集未运行"
+        val state = if (captureEnabled) "§f运行中" else "§e未运行"
         val lines = mutableListOf(
-            "$state§7。已发送 §f${number(sinkStats.sentBatches)}§7 批、" +
-                "§f${number(sinkStats.sentEvents)}§7 个事件，磁盘待发送 " +
-                "§f${number(sinkStats.pendingBatches)}§7 批；内存待发送 " +
-                "§f${number(queuedRecords)}§7 条记录。",
+            "§7采集: $state",
+            "§7已发送: §f${number(sinkStats.sentBatches)}§7 批, " +
+                "§f${number(sinkStats.sentEvents)}§7 个事件",
+            "§7待发送: §f${number(sinkStats.pendingBatches)}§7 批 (磁盘), " +
+                "§f${number(queuedRecords)}§7 条记录 (内存)",
         )
         val history = buildList {
             if (sinkStats.queueDropped > 0) {
-                add("内存丢弃 §f${number(sinkStats.queueDropped)}§7 条记录")
+                add("内存丢弃: §f${number(sinkStats.queueDropped)}§7 条记录")
             }
             if (sinkStats.spoolDroppedBatches > 0) {
                 add(
-                    "磁盘丢弃 §f${number(sinkStats.spoolDroppedBatches)}§7 批、" +
+                    "磁盘丢弃: §f${number(sinkStats.spoolDroppedBatches)}§7 批, " +
                         "§f${number(sinkStats.spoolDroppedEvents)}§7 个事件",
                 )
             }
@@ -67,20 +63,18 @@ internal object ShieldCommandView {
                 sinkStats.otherRejected +
                 sinkStats.networkFailed
             if (transportFailures > 0) {
-                add("传输失败 §f${number(transportFailures)}§7 次")
+                add("传输失败: §f${number(transportFailures)}§7 次")
             }
         }
-        val observations = buildList {
-            if (history.isNotEmpty()) {
-                add("本次运行累计：${history.joinToString("；")}")
-            }
-            if (sinkStats.quarantinedBatches > 0) {
-                add("当前隔离 §f${number(sinkStats.quarantinedBatches)}§7 批")
-            }
-            if (lastHttpFailed) add("最近一次 HTTP 状态为 §f${sinkStats.lastHttpStatus}§7")
+        if (history.isNotEmpty()) {
+            lines += "§7本次运行累计:"
+            lines += history.map { "§7  $it" }
         }
-        if (observations.isNotEmpty()) {
-            lines += "§7${observations.joinToString("；")}。"
+        if (sinkStats.quarantinedBatches > 0) {
+            lines += "§7当前隔离: §f${number(sinkStats.quarantinedBatches)}§7 批"
+        }
+        if (lastHttpFailed) {
+            lines += "§7最近 HTTP 状态: §e${sinkStats.lastHttpStatus}"
         }
         return lines
     }
@@ -88,11 +82,11 @@ internal object ShieldCommandView {
     private fun number(value: Number): String = String.format(Locale.ROOT, "%,d", value.toLong())
 }
 
-/** `/shield` 只展示请求链路状态，不在游戏服内执行裁决。 */
+/** `/shield` 查看状态，`/shield reload` 重载行动配置。 */
 class ShieldCommand(
     private val capture: () -> PacketCaptureService?,
     private val sink: () -> EventSink?,
-    private val reload: () -> Unit,
+    private val reloadConfig: () -> Unit,
 ) : CommandExecutor, TabCompleter {
 
     override fun onCommand(
@@ -107,18 +101,23 @@ class ShieldCommand(
         }
         when (ShieldCommandView.action(args.toList())) {
             ShieldCommandAction.STATUS -> status(sender)
-            ShieldCommandAction.RELOAD -> {
-                runCatching(reload)
-                    .onSuccess {
-                        sender.sendMessage(ShieldCommandView.RELOAD_SUCCESS)
-                    }
-                    .onFailure {
-                        sender.sendMessage(ShieldCommandView.reloadFailure(it.message))
-                    }
-            }
+            ShieldCommandAction.RELOAD -> reload(sender)
             ShieldCommandAction.USAGE -> sender.sendMessage(ShieldCommandView.USAGE)
         }
         return true
+    }
+
+    private fun reload(sender: CommandSender) {
+        try {
+            reloadConfig()
+            sender.sendMessage(ShieldCommandView.RELOADED)
+        } catch (_: InvalidConfigurationException) {
+            sender.sendMessage(ShieldCommandView.INVALID_YAML)
+        } catch (_: IOException) {
+            sender.sendMessage(ShieldCommandView.UNREADABLE_CONFIG)
+        } catch (invalid: IllegalArgumentException) {
+            sender.sendMessage("§c配置重载失败, 保留原配置: ${invalid.message}")
+        }
     }
 
     private fun status(sender: CommandSender) {
@@ -136,8 +135,9 @@ class ShieldCommand(
         command: Command,
         alias: String,
         args: Array<out String>,
-    ): List<String> {
-        if (!sender.hasPermission("shield.admin")) return emptyList()
-        return ShieldCommandView.suggestions(args.toList())
+    ): List<String> = if (sender.hasPermission("shield.admin") && args.size == 1) {
+        listOf("reload").filter { it.startsWith(args[0], ignoreCase = true) }
+    } else {
+        emptyList()
     }
 }

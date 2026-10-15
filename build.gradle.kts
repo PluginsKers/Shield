@@ -27,8 +27,8 @@ repositories {
 }
 
 dependencies {
-    // 以支持范围内最早的 Paper API 为编译边界。
-    compileOnly("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
+    // 以 Dialog API 首次公开的 Paper 版本为编译边界。
+    compileOnly("io.papermc.paper:paper-api:1.21.7-R0.1-SNAPSHOT")
     // 运行时应安装明确支持目标 Minecraft 版本的 ProtocolLib 构建。
     compileOnly("net.dmulloy2:ProtocolLib:5.4.0")
 
@@ -36,7 +36,7 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testImplementation(kotlin("test"))
-    testImplementation("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
+    testImplementation("io.papermc.paper:paper-api:1.21.7-R0.1-SNAPSHOT")
 }
 
 tasks {

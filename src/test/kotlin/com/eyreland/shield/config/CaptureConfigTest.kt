@@ -1,26 +1,22 @@
 package com.eyreland.shield.config
 
-import org.bukkit.configuration.file.YamlConfiguration
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class CaptureConfigTest {
     @Test
-    fun `heartbeat intervals are bounded and legacy raw fields are ignored`() {
-        val section = YamlConfiguration().apply {
-            set("enabled", true)
-            set("heartbeat-interval-ticks", 1)
-            set("telemetry-interval-ticks", 5_000)
-            set("packets.USE_ENTITY.enabled", true)
-            set("packets.USE_ENTITY.raw-fields", true)
+    fun `fixed collection excludes spectators and shares the existing movement sampling budget`() {
+        val config = CaptureConfig("server", "standalone")
+        assertFalse(config.allowsGameMode("spectator"))
+        assertTrue(config.allowsGameMode("SURVIVAL"))
+        assertFalse("CHAT" in config.packets)
+        assertFalse("CUSTOM_PAYLOAD" in config.packets)
+        assertEquals(17, config.packets.size)
+        for (packet in listOf("POSITION", "POSITION_LOOK", "LOOK", "GROUND")) {
+            assertEquals(PacketRule(50, "movement"), config.packets[packet])
         }
-
-        val config = CaptureConfig.from(section)
-
-        assertEquals(20, config.heartbeatIntervalTicks)
-        assertEquals(1_200, config.telemetryIntervalTicks)
-        assertFalse(config.usedLegacyPacketDefaults)
-        assertEquals(setOf("USE_ENTITY"), config.packets.keys)
+        assertEquals(180_000, config.afkTimeoutMs)
     }
 }

@@ -4,20 +4,21 @@ import com.eyreland.shield.capture.PacketCaptureService
 import com.eyreland.shield.capture.AuthorityCaptureService
 import com.eyreland.shield.capture.PlayerContextStore
 import com.eyreland.shield.command.ShieldCommand
+import com.eyreland.shield.command.ShieldCommandView
 import com.eyreland.shield.config.CaptureConfig
-import com.eyreland.shield.config.InferenceConfig
-import com.eyreland.shield.config.InterventionConfig
+import com.eyreland.shield.config.ReloadableConfig
 import com.eyreland.shield.inference.EventSink
 import com.eyreland.shield.inference.HttpEventSink
 import com.eyreland.shield.inference.PlayerInterventionService
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
 import org.bukkit.plugin.java.JavaPlugin
+import org.bukkit.configuration.InvalidConfigurationException
+import java.io.IOException
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
 /**
- * Shield 入口。
- *
  * 捕获线程只做过滤、稳定语义解码和非阻塞 offer。gzip、spool、HMAC 与 HTTP 全部
  * 由独立单线程执行器完成。接口故障只影响观测数据，不影响游戏线程或玩家处置。
  */
@@ -29,33 +30,32 @@ class ShieldPlugin : JavaPlugin() {
     private var contexts: PlayerContextStore? = null
     private var ioExecutor: ScheduledExecutorService? = null
     private var interventions: PlayerInterventionService? = null
-    private var activeInferenceConfig: InferenceConfig? = null
-    private var activeServerId: String? = null
-    private var activeProxyMode: String? = null
 
     override fun onEnable() {
         saveDefaultConfig()
 
-        val captureConfig: CaptureConfig
-        val inferenceConfig: InferenceConfig
-        val interventionConfig: InterventionConfig
-        try {
-            captureConfig = CaptureConfig.from(config.getConfigurationSection("capture"))
-            inferenceConfig = InferenceConfig.from(config.getConfigurationSection("inference"))
-            interventionConfig = InterventionConfig.from(
-                config.getConfigurationSection("interventions"),
-            )
+        val configuration = try {
+            ReloadableConfig(dataFolder.resolve("config.yml"))
+        } catch (_: InvalidConfigurationException) {
+            logger.severe("config.yml 的 YAML 格式错误, 停用插件")
+            server.pluginManager.disablePlugin(this)
+            return
+        } catch (_: IOException) {
+            logger.severe("无法读取 config.yml, 停用插件")
+            server.pluginManager.disablePlugin(this)
+            return
         } catch (invalid: IllegalArgumentException) {
-            logger.severe("Shield 配置无效，停用插件：${invalid.message}")
+            logger.severe("配置无效, 停用插件: ${invalid.message}")
             server.pluginManager.disablePlugin(this)
             return
         }
-        registerCommand()
-        if (!inferenceConfig.enabled) {
-            logger.warning("inference.enabled=false；Shield 不捕获也不保存原始事件")
-            logger.info("Shield 已启用（传输关闭，游戏 fail-open）")
-            return
-        }
+        val inferenceConfig = configuration.current.inference
+        val interventionConfig = configuration.current.interventions
+        val captureConfig = CaptureConfig(
+            inferenceConfig.keyId,
+            if (server.serverConfig.isProxyEnabled) "proxy" else "standalone",
+        )
+        registerCommand(configuration)
 
         val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(runnable, "shield-inference").apply { isDaemon = true }
@@ -64,11 +64,6 @@ class ShieldPlugin : JavaPlugin() {
 
         val pluginRoot = dataFolder.toPath().toAbsolutePath().normalize()
         val spoolRoot = pluginRoot.resolve(inferenceConfig.spoolDirectory).normalize()
-        if (!spoolRoot.startsWith(pluginRoot)) {
-            logger.severe("inference.spool-directory 越出插件目录，停用 Shield")
-            server.pluginManager.disablePlugin(this)
-            return
-        }
         lateinit var interventionService: PlayerInterventionService
         val eventSink = HttpEventSink(
             config = inferenceConfig,
@@ -85,7 +80,7 @@ class ShieldPlugin : JavaPlugin() {
         try {
             interventionService = PlayerInterventionService(
                 plugin = this,
-                initialConfig = interventionConfig,
+                config = { configuration.current.interventions },
                 ledgerPath = pluginRoot.resolve("intervention-ledger.properties"),
                 executor = executor,
                 receiptSink = eventSink::enqueueInterventionReceipt,
@@ -94,7 +89,7 @@ class ShieldPlugin : JavaPlugin() {
             eventSink.start()
             interventionService.start()
         } catch (failure: Throwable) {
-            logger.severe("事件 sink 启动失败，停用 Shield：${failure.message}")
+            logger.severe("事件传输启动失败, 停用插件: ${failure.message}")
             eventSink.stop()
             executor.shutdownNow()
             server.pluginManager.disablePlugin(this)
@@ -102,9 +97,6 @@ class ShieldPlugin : JavaPlugin() {
         }
         sink = eventSink
         interventions = interventionService
-        activeInferenceConfig = inferenceConfig
-        activeServerId = captureConfig.serverId
-        activeProxyMode = captureConfig.proxyMode
 
         val contextStore = PlayerContextStore(this)
         contextStore.start()
@@ -112,12 +104,12 @@ class ShieldPlugin : JavaPlugin() {
         capture = newCapture(contextStore, eventSink, captureConfig)
 
         logger.info(
-            "Shield 已启用（玩家警告=${interventionConfig.enabled && interventionConfig.warning.enabled}，" +
-                "踢出=${interventionConfig.enabled && interventionConfig.kick.enabled}）",
+            "插件已启用 (玩家警告=${interventionConfig.enabled && interventionConfig.warning.enabled}, " +
+                "踢出=${interventionConfig.enabled && interventionConfig.kick.enabled})",
         )
     }
 
-    private fun registerCommand() {
+    private fun registerCommand(configuration: ReloadableConfig) {
         val cmd = getCommand("shield")
         if (cmd == null) {
             logger.warning("plugin.yml 未声明 shield 命令")
@@ -126,10 +118,11 @@ class ShieldPlugin : JavaPlugin() {
         val handler = ShieldCommand(
             capture = { capture },
             sink = { sink },
-            reload = ::reloadShield,
+            reloadConfig = configuration::reload,
         )
         cmd.setExecutor(handler)
         cmd.tabCompleter = handler
+        cmd.permissionMessage(LegacyComponentSerializer.legacySection().deserialize(ShieldCommandView.NO_PERMISSION))
     }
 
     private fun newCapture(
@@ -137,9 +130,7 @@ class ShieldPlugin : JavaPlugin() {
         eventSink: EventSink,
         captureConfig: CaptureConfig,
     ): PacketCaptureService {
-        if (captureConfig.usedLegacyPacketDefaults) {
-            logger.warning("旧配置缺少 capture.packets，暂用固定兼容白名单；请按新版 config.yml 显式配置")
-        }
+
         val packetCapture = PacketCaptureService(
             this,
             captureConfig,
@@ -155,38 +146,6 @@ class ShieldPlugin : JavaPlugin() {
             ).also { it.start() }
         }
         return packetCapture
-    }
-
-    /** 传输和 spool 参数需重启；reload 替换捕获与玩家干预策略并切换会话。 */
-    private fun reloadShield() {
-        reloadConfig()
-        val newCaptureConfig = CaptureConfig.from(config.getConfigurationSection("capture"))
-        val newInferenceConfig = InferenceConfig.from(config.getConfigurationSection("inference"))
-        val newInterventionConfig = InterventionConfig.from(
-            config.getConfigurationSection("interventions"),
-        )
-        val currentInference = activeInferenceConfig
-            ?: throw IllegalStateException("传输当前未启用；修改 inference 后请重启")
-        require(newInferenceConfig == currentInference) {
-            "inference 参数变更需要重启"
-        }
-        require(
-            newCaptureConfig.serverId == activeServerId &&
-                newCaptureConfig.proxyMode == activeProxyMode,
-        ) {
-            "capture.server-id 或 proxy-mode 变更需要重启"
-        }
-        val contextStore = contexts ?: throw IllegalStateException("玩家上下文未启动")
-        val eventSink = sink ?: throw IllegalStateException("事件 sink 未启动")
-        val interventionService = interventions
-            ?: throw IllegalStateException("玩家干预服务未启动")
-
-        authority?.stop()
-        authority = null
-        capture?.stop()
-        contextStore.rotateSessions()
-        capture = newCapture(contextStore, eventSink, newCaptureConfig)
-        interventionService.updateConfig(newInterventionConfig)
     }
 
     override fun onDisable() {
@@ -212,9 +171,6 @@ class ShieldPlugin : JavaPlugin() {
         sink = null
         ioExecutor = null
         interventions = null
-        activeInferenceConfig = null
-        activeServerId = null
-        activeProxyMode = null
-        logger.info("Shield 已禁用")
+        logger.info("插件已禁用")
     }
 }

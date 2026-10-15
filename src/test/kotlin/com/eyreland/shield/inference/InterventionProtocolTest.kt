@@ -2,7 +2,6 @@ package com.eyreland.shield.inference
 
 import com.eyreland.shield.config.InterventionConfig
 import net.kyori.adventure.text.TextComponent
-import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.configuration.file.YamlConfiguration
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
@@ -11,6 +10,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 
 class InterventionProtocolTest {
     @TempDir
@@ -82,16 +83,18 @@ class InterventionProtocolTest {
     @Test
     fun `ledger persists dedupe and enforces long warning cooldown`() {
         val path = temporaryDirectory.resolve("ledger.properties")
-        val config = InterventionConfig.from(null)
+        val config = InterventionConfig.defaults()
         val now = 1_900_000_000_000
         val first = directive("first", now)
         val ledger = InterventionLedger(path)
 
         assertIs<LedgerRegistration.Ready>(ledger.register(first, config, now))
-        assertEquals(
-            InterventionOutcome.APPLIED,
-            ledger.complete(first, InterventionOutcome.APPLIED, now).outcome,
+        val receipt = assertNotNull(
+            ledger.complete(first, InterventionOutcome.APPLIED, now),
         )
+        assertEquals(InterventionOutcome.APPLIED, receipt.outcome)
+        assertEquals(now, receipt.handledAtMs)
+        assertNull(ledger.complete(first, InterventionOutcome.EXPIRED, now + 1))
         assertEquals(1, InterventionLedger(path).pendingReceipts().size)
         ledger.markReceiptPersisted(first.directiveId)
         assertEquals(0, InterventionLedger(path).pendingReceipts().size)
@@ -113,40 +116,36 @@ class InterventionProtocolTest {
         val first = directive("collision", now)
         val ledger = InterventionLedger(temporaryDirectory.resolve("collision.properties"))
         assertIs<LedgerRegistration.Ready>(
-            ledger.register(first, InterventionConfig.from(null), now),
+            ledger.register(first, InterventionConfig.defaults(), now),
         )
 
         assertFailsWith<IllegalArgumentException> {
             ledger.register(
                 first.copy(reason = "different"),
-                InterventionConfig.from(null),
+                InterventionConfig.defaults(),
                 now,
             )
         }
     }
 
     @Test
-    fun `warning component has exact red prefix and white message`() {
-        val component = PlayerInterventionService.warningComponent(
-            InterventionConfig.from(null),
-        )
+    fun `player notices use plain text without a prefix`() {
+        val title = PlayerInterventionService.warningTitle()
 
-        val prefix = assertIs<TextComponent>(component)
-        val message = assertIs<TextComponent>(component.children().single())
-        assertEquals("[!]", prefix.content())
-        assertEquals(NamedTextColor.RED, prefix.color())
-        assertEquals(" 你当前的行为存在异常", message.content())
-        assertEquals(NamedTextColor.WHITE, message.color())
+        val text = assertIs<TextComponent>(title)
+        assertEquals("行为提示", text.content())
+        assertNull(text.color())
+
+        val config = InterventionConfig.defaults()
+        val kick = assertIs<TextComponent>(PlayerInterventionService.kickComponent(config))
+        assertEquals(config.kick.message, kick.content())
+        assertNull(kick.color())
+        assertEquals(emptyList(), kick.children())
     }
 
     @Test
     fun `local gate rejects kick without successful warning history`() {
-        val config = InterventionConfig.from(
-            YamlConfiguration().apply {
-                set("kick.enabled", true)
-                set("kick.minimum-prior-warnings", 1)
-            },
-        )
+        val config = InterventionConfig.defaults().let { it.copy(kick = it.kick.copy(enabled = true)) }
         val now = 1_900_000_000_000
         val kick = directive("kick-first", now, InterventionKind.KICK)
 
@@ -160,12 +159,9 @@ class InterventionProtocolTest {
 
     @Test
     fun `local gate admits configured kick after successful warning`() {
-        val config = InterventionConfig.from(
-            YamlConfiguration().apply {
-                set("kick.enabled", true)
-                set("kick.minimum-prior-warnings", 1)
-            },
-        )
+        val config = InterventionConfig.from(YamlConfiguration().apply {
+            set("interventions.kick.enabled", true)
+        })
         val now = 1_900_000_000_000
         val ledger = InterventionLedger(temporaryDirectory.resolve("kick-ready.properties"))
         val warning = directive("warning", now)
@@ -174,6 +170,12 @@ class InterventionProtocolTest {
 
         val kick = directive("kick", now + 1, InterventionKind.KICK)
         assertIs<LedgerRegistration.Ready>(ledger.register(kick, config, now + 1))
+        ledger.complete(kick, InterventionOutcome.APPLIED, now + 2)
+        val receipt = InterventionLedger(temporaryDirectory.resolve("kick-ready.properties"))
+            .pendingReceipts().single { it.kind == InterventionKind.KICK }
+        assertEquals(kick.directiveId, receipt.directiveId)
+        assertEquals(InterventionOutcome.APPLIED, receipt.outcome)
+        assertEquals(now + 2, receipt.handledAtMs)
     }
 
     @Test
@@ -183,7 +185,7 @@ class InterventionProtocolTest {
         val warning = directive("recovery", now)
         val ledger = InterventionLedger(path)
         assertIs<LedgerRegistration.Ready>(
-            ledger.register(warning, InterventionConfig.from(null), now),
+            ledger.register(warning, InterventionConfig.defaults(), now),
         )
         assertEquals(true, ledger.markDispatched(warning.directiveId))
 

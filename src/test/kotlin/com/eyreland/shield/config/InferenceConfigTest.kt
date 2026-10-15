@@ -4,50 +4,44 @@ import org.bukkit.configuration.file.YamlConfiguration
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
 
 class InferenceConfigTest {
-    @Test
-    fun `missing section uses HTTPS defaults when secret environment exists`() {
-        val config = InferenceConfig.from(null) { "x".repeat(32) }
+    private val id = "00000000-0000-0000-0000-000000000001"
+    private val secret = "a".repeat(64)
 
-        assertTrue(config.enabled)
-        assertEquals(
-            "https://api.i5res.com/shield/v1/events",
-            config.endpoint.toString(),
-        )
+    @Test
+    fun `one issued key binds identity and signing material to fixed transport defaults`() {
+        val root = YamlConfiguration().apply { set("server-key", "shd_$id.$secret") }
+        val config = InferenceConfig.from(root)
+        assertEquals(id, config.keyId)
+        assertEquals(secret, config.hmacSecret)
+        assertEquals("https://api.i5res.com/shield/v1/events", config.endpoint.toString())
         assertEquals(500, config.batchSize)
         assertEquals(60_000, config.requestTimeoutMs)
     }
 
     @Test
-    fun `enabled transport requires configured secret`() {
-        assertFailsWith<IllegalArgumentException> {
-            InferenceConfig.from(null) { null }
+    fun `missing malformed and legacy configuration cannot silently select another identity or policy`() {
+        for (key in listOf("", id, "shd_1-1-1-1-1.$secret", "shd_$id.short", "shd_$id.${"z".repeat(64)}")) {
+            assertFailsWith<IllegalArgumentException> {
+                InferenceConfig.from(YamlConfiguration().apply { set("server-key", key) })
+            }
+        }
+        for (path in listOf("capture.server-id", "capture.enabled", "inference.batch-size", "actions.kick.enabled")) {
+            assertFailsWith<IllegalArgumentException> {
+                InferenceConfig.from(YamlConfiguration().apply {
+                    set("server-key", "shd_$id.$secret")
+                    set(path, "override")
+                })
+            }
         }
     }
 
     @Test
-    fun `inline secret makes config self contained and takes precedence`() {
-        val section = YamlConfiguration().apply {
-            set("hmac-secret", "inline-" + "x".repeat(32))
-            set("hmac-secret-env", "SHIELD_TEST_SECRET")
-        }
-
-        val config = InferenceConfig.from(section) { "environment-" + "y".repeat(32) }
-
-        assertEquals("inline-" + "x".repeat(32), config.hmacSecret)
-    }
-
-    @Test
-    fun `accepts a custom secure endpoint path`() {
-        val section = YamlConfiguration().apply {
-            set("endpoint", "https://example.com/custom/ingest")
-            set("hmac-secret", "x".repeat(32))
-        }
-
-        val config = InferenceConfig.from(section)
-
-        assertEquals("https://example.com/custom/ingest", config.endpoint.toString())
+    fun `local actions do not alter server identity or transport`() {
+        val root = YamlConfiguration().apply { set("server-key", "shd_$id.$secret") }
+        val before = InferenceConfig.from(root)
+        root.set("interventions.kick.enabled", true)
+        assertEquals(before, InferenceConfig.from(root))
     }
 }

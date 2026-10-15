@@ -1,192 +1,40 @@
-# Shield
+# shield
 
-Shield 在 Velocity 后端通过 ProtocolLib 捕获客户端入站包，转换为稳定事件后，
-异步发送到独立的 Shield-Inference 服务。插件不保存原始事件到 PostgreSQL，
-不在捕获线程等待推理。I/O 线程可接收短期玩家干预指令：默认只发送一次低频
-警告，踢出必须在推理端和本地配置中分别显式开启；插件不执行封禁。
+Paper、Folia、Purpur 行为采集插件，将事件发送到 Shield 服务进行分析和人工复查，不执行封禁。
 
-## 链路
+## 构建
 
-```text
-ProtocolLib
-  → 显式白名单、过滤与节流
-Paper 权威事件与低频玩家心跳
-  → 有界内存队列
-  → gzip + HMAC 的完整事件批次
-  → 有界磁盘 spool
-  → HTTPS POST /shield/v1/events
-  → 在线特征、评分、治理与人工复查
-  → 有界 ACK 指令、本地幂等台账与执行回执
+Java 与服务端版本要求见 [build.gradle.kts](build.gradle.kts)。
+
+```bash
+./gradlew build
 ```
 
-捕获线程只执行非阻塞 `offer`。压缩、磁盘和网络都在单独 I/O 线程执行。
-接口不可用时游戏 fail-open；队列或 spool 满时丢弃最旧观测数据并计数，
-绝不阻塞玩家线程。
+Windows 使用 `.\gradlew.bat build`，产物为 `build/libs/shield-<version>.jar`。
 
-## 部署
+## 安装
 
-1. 准备 Paper 或 Folia 与明确支持该 Minecraft 版本的 ProtocolLib，不再需要 PostgreSQL。
-2. 在 `config.yml` 直接填写与目标服务端相同的 HMAC 密钥：
+1. 安装与服务端版本兼容的 ProtocolLib，再安装 shield。
+2. 在 [Shield 后台](https://shield.i5res.com/dashboard#servers) 创建服务器，将接入配置保存到 `plugins/shield/config.yml`。
+3. 重启服务端，执行 `/shield` 查看状态。
 
-   ```yaml
-   inference:
-     hmac-secret: "<至少 32 字符>"
-   ```
+## 玩家行动
 
-3. 执行 `./gradlew build`，部署 `build/libs/Shield-<version>.jar`。
-4. 每个后端配置唯一的 `capture.server-id`，并启用 Velocity modern forwarding。
-5. 重启后执行 `/shield`，确认采集运行且没有失败记录。
+`config.yml` 的 `interventions` 配置本地行动策略，修改后执行 `/shield reload` 生效。仅配置 `server-key` 时使用默认值。
 
-插件以 Paper 1.21 API 和 Java 21 字节码构建，支持 Paper、Folia 1.21 至 26.2，
-以及保持 Paper API 兼容的服务端分支。运行时使用服务端要求的 Java 版本。
+- `enabled`：行动总开关，默认开启。
+- `warning.enabled`：警告开关，默认开启。`cooldown-seconds` 默认 1800，范围 300 至 86400；`message` 为警告内容。
+- `kick.enabled`：踢出开关，默认关闭。`minimum-prior-warnings` 为至少成功确认的警告次数，默认 1，范围 1 至 100；`cooldown-seconds` 默认 3600，范围 60 至 604800；`message` 为踢出原因。
+- 两种 `message` 均须为 1 至 256 字符的单行文字。未知配置项、错误类型与越界值会阻止插件启动。
 
-默认接口为 `https://api.i5res.com/shield/v1/events`。所有符合显式过滤条件的玩家
-进入同一采集路径。`hmac-secret` 非空时优先；留空时从 `hmac-secret-env` 指定的环境变量读取。
-接口可替换为任意无账号、query 和 fragment 的 HTTPS 绝对地址。带真实密钥的部署配置
-不得提交到版本库。
+开启踢出仍须收到推理端已授权的踢出指令，并通过本地警告次数、冷却与有效期检查。警告在玩家关闭提示后确认；踢出回执表示已调用踢出，不确认客户端断线。行动结果通过现有事件队列持久化、重试并上报推理端，包含本地未启用、前置条件或冷却限制、玩家离线、指令过期及结果无效。
 
-旧数据库表不会被读取、写入或自动删除。历史数据的归档与删除是独立操作。
+## 配置重载
 
-## 传输配置
+`/shield reload` 可由控制台或拥有 `shield.admin` 权限的玩家执行，支持 Tab 补全。读取与校验整份配置成功后一次性替换行动策略，文件缺失、YAML 错误或配置无效时保留原配置。
 
-```yaml
-inference:
-  enabled: true
-  endpoint: "https://api.i5res.com/shield/v1/events"
-  key-id: "shield-events-1"
-  hmac-secret: "<与目标服务端一致的至少 32 字符密钥>"
-  hmac-secret-env: "SHIELD_INFERENCE_HMAC_SECRET"
+尚未开始执行的行动按新策略检查；已显示的警告继续原有确认与回执流程。重载保留事件队列、冷却记录、警告次数与回执，不重复执行历史指令。
 
-  batch-size: 500
-  flush-interval-ms: 1000
-  queue-capacity: 20000
-  connect-timeout-ms: 3000
-  request-timeout-ms: 60000
-  retry-initial-ms: 1000
-  retry-max-ms: 60000
+`server-key` 绑定服务器身份与现有上报队列，变更后需要重启服务器；此时整个重载会被拒绝，行动配置也保持原值。
 
-  spool-directory: "inference-spool"
-  spool-max-bytes: 268435456
-  spool-max-batches: 4096
-  spool-ttl-ms: 21600000
-  quarantine-max-batches: 32
-```
-
-- `batch_id` 在首次写入 spool 时生成；重试保持不变。
-- 每次 HTTP 尝试生成新时间戳、nonce 和 HMAC。
-- `429`、网络错误和 `5xx` 指数退避。
-- `401/403` 计为认证失败；`422` 计为 schema 失败。对应批次进入有界隔离区，
-  不做忙重试。
-- pending 和隔离区共用容量上限与 TTL，磁盘占用有明确上界。
-- spool 文件权限在支持 POSIX 权限的平台设为仅服务账号可读写。
-- `reload` 更新采集与玩家干预策略；接口、密钥、spool 和服务身份变更需重启。
-
-HMAC 只提供身份与完整性。生产接口必须使用 HTTPS；只有显式开启
-`allow-insecure-http` 或回环地址才允许 HTTP。
-
-## 玩家干预配置
-
-```yaml
-interventions:
-  enabled: true
-  ledger-retention-hours: 168
-  warning:
-    enabled: true
-    cooldown-seconds: 1800
-    prefix: "[!]"
-    message: "你当前的行为存在异常"
-  kick:
-    enabled: false
-    minimum-prior-warnings: 1
-    cooldown-seconds: 3600
-    message: "你当前的行为持续异常"
-```
-
-警告显示为红色 `[!]`，后接白色 `你当前的行为存在异常`，不附带处罚。本地默认
-30 分钟内不重复提示同一玩家。踢出默认关闭；启用后仍拒绝没有本地成功警告记录的指令。
-
-每个指令先写入 `intervention-ledger.properties` 再调度到玩家所属区域线程。
-台账保存待执行状态、结果与冷却信息；相同 `directive_id` 在 HTTP 重试或服务器重启
-后只会执行一次。`applied`、关闭、冷却、离线、过期等结果通过有界队列回传；
-回执写入磁盘 spool 后才从待重试台账移除，队列拥塞时由 I/O 执行器重试。接口
-故障或响应格式错误不触发玩家动作，也不阻塞游戏线程。
-
-## 捕获配置
-
-`capture.packets` 是唯一发送白名单：
-
-```yaml
-capture:
-  server-id: survival-1
-  proxy-mode: velocity
-  afk-timeout-ms: 180000
-  heartbeat-interval-ticks: 100
-  telemetry-interval-ticks: 100
-  filters:
-    include:
-      worlds: [world]
-      game-modes: [SURVIVAL]
-    exclude:
-      protocols: []
-  packets:
-    POSITION:
-      min-interval-ms: 50
-      rate-limit-group: movement
-    POSITION_LOOK:
-      min-interval-ms: 50
-      rate-limit-group: movement
-    ATTACK: true
-    USE_ENTITY:
-      include-actions: [ATTACK, INTERACT, INTERACT_AT]
-```
-
-- `include` 的所有非空维度都要命中；`exclude` 任一维度命中即拒绝。
-- 可用 `capture.filters.include.uuids` 做显式白名单；未配置时不按玩家抽样。
-- 同一玩家、同一 `rate-limit-group` 共享最小采样间隔。
-- `include-actions` 无法求值时拒绝；不发送反射生成的 `raw_fields`。
-- AFK 到期后停止发送，但继续观察恢复活动所需的包。
-- 聊天和自定义载荷不采集。
-
-Paper 的 `PrePlayerAttackEntityEvent` 提供客户端攻击意图与目标；伤害、取消和
-击退由服务端事件补充。玩家心跳提供位置、速度、效果、属性、移动环境、Ping、
-服务端 tick、TPS 与 MSPT。它们都经过同一非阻塞有界队列，不在游戏线程做推理。
-
-所有线上事件标签固定为 `unlabeled`。真实复查结论只在治理服务写入和审计，
-不再由游戏服维护标签数据库。
-
-## 接口契约
-
-客户端始终发送当前完整事件批次。旧批次兼容由服务端负责，客户端不提供协议降级配置：
-
-- 批次：`batch_id`、`sent_at_ms`、`server_id`、`proxy_mode`、
-  `server_version`、`events`、`closed_sessions`。
-- 会话：`session_id`、单调 `session_sequence`、`session_age_ms`、
-  `since_previous_us` 与基于 `System.nanoTime()` 的 `session_monotonic_us`。
-- 玩家：UUID、名称、世界、模式和观测协议。
-- 事件：来源、稳定事件类型、分类、包类型、动作、目标身份、姿态、字段新鲜度及
-  受限语义 payload。
-- 采集证明：每个周期报告符合条件玩家数、漏采玩家 UUID 和投递丢失事实。
-- 干预回执：`directive_id`、玩家 UUID、`warn/kick`、处理结果与处理时间。
-
-服务返回 `202` 后，Shield 会先验证不超过 1 MiB、1,000 条指令的 ACK 并把新指令写入本地
-台账，再删除 pending 文件。响应丢失时用相同 body 重试，服务端按 `batch_id`
-返回相同指令；本地再按 `directive_id` 去重。玩家退出、插件停止和 capture reload
-都会发送会话关闭标记。
-
-## 运维
-
-```text
-/shield
-/shield reload
-```
-
-`/shield` 展示采集运行状态、累计发送量、内存和磁盘待发量。本次运行的丢弃与
-传输失败使用累计计数；隔离批次和最近 HTTP 失败使用当前快照。
-
-`/shield reload` 原子重载采集策略与 `interventions`。接口、密钥、spool、server-id 或
-proxy-mode 等传输配置变更仍需重启服务器，命令反馈会明确提示这一边界。
-
-默认治理 cohort 处于 shadow，当前候选模型也没有线上校准授权，因此不会产生
-玩家指令。只有已授权模型、已校准且无漂移的 cohort 才可能产生低频警告；接口
-故障永远不会触发玩家动作。踢出还要求模型制品、推理端建议开关和上述本地开关
-同时授权；当前候选模型的自动处置硬锁不能被配置覆盖。
+- [配置说明](src/main/resources/config.yml)

@@ -440,7 +440,6 @@ class HttpEventSinkTest {
     }
 
     private fun testConfig(endpoint: URI) = InferenceConfig(
-        enabled = true,
         endpoint = endpoint,
         keyId = "test-key",
         hmacSecret = "0123456789abcdef0123456789abcdef",
