@@ -3,118 +3,122 @@
 </p>
 
 <p align="center">
-  <strong>适用于 Paper、Folia 与 Purpur 的行为采集插件</strong>
+  <strong>Player behavior collection for Paper, Folia and Purpur</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/PluginsKers/Shield/releases">下载发行版</a>&nbsp;&nbsp;
-  <a href="#开始使用">安装</a>&nbsp;&nbsp;
-  <a href="https://shield.i5res.com">Shield 官网</a>&nbsp;&nbsp;
-  <a href="https://github.com/PluginsKers/Shield/issues">问题反馈</a>
+  <a href="https://github.com/PluginsKers/Shield/releases">Download</a>&nbsp;&nbsp;
+  <a href="#getting-started">Install</a>&nbsp;&nbsp;
+  <a href="https://shield.i5res.com">Website</a>&nbsp;&nbsp;
+  <a href="https://github.com/PluginsKers/Shield/issues">Report an issue</a>
 </p>
 
-Shield 采集玩家移动、战斗与交互事件，异步发送到 Shield 服务进行分析和人工复查。插件按授权指令执行警告或踢出，不执行封禁。
+<p align="center">
+  English&nbsp;&nbsp;<a href="README.zh-CN.md">简体中文</a>
+</p>
 
-使用前需要在 [Shield 后台](https://shield.i5res.com/dashboard#servers) 创建服务器并获取接入密钥。行为分析依赖远程服务，插件不提供离线推理。
+Shield collects player movement, combat and interaction events and sends them asynchronously to the Shield service for analysis and human review. The plugin carries out authorized warnings or kicks. It does not ban players.
 
-## 开始使用
+To use Shield, register a server in the [dashboard](https://shield.i5res.com/dashboard#servers) and obtain a server key. Behavior analysis requires the remote Shield service; the plugin does not provide offline inference.
 
-1. 根据下方[兼容范围](#兼容范围)准备服务端，并安装支持该 Minecraft 版本的 ProtocolLib。
-2. 从[发行版](https://github.com/PluginsKers/Shield/releases)下载 `shield-<version>.jar`，放入服务端的 `plugins` 目录。
-3. 在 Shield 后台创建服务器，将接入配置保存到 `plugins/shield/config.yml`；目录不存在时先创建。最小配置如下：
+## Getting started
+
+1. Check the [compatibility table](#compatibility) below and install a ProtocolLib build that supports your Minecraft version.
+2. Download `shield-<version>.jar` from [Releases](https://github.com/PluginsKers/Shield/releases) and place it in your server's `plugins` directory.
+3. Register your server in the Shield dashboard and save its connection configuration to `plugins/shield/config.yml`. Create the directory if needed. The minimal configuration is:
 
    ```yaml
-   server-key: "粘贴接入密钥"
+   server-key: "paste-your-server-key"
    ```
 
-4. 重启服务端，执行 `/shield` 查看插件状态与上报情况。
+4. Restart the server and run `/shield` to check collection and delivery status.
 
-升级时先备份 `plugins/shield`，替换 JAR 后重启服务端。保留目录中的事件队列与行动记录，避免丢失尚未上报的数据或行动状态。
+Before upgrading, back up `plugins/shield`. Replace the JAR and restart the server. Preserve the event queue and intervention records in that directory so pending data and action state are retained.
 
-## 兼容范围
+## Compatibility
 
-插件基于 Paper 1.21.7 API，使用 Java 21 字节码。Paper、Folia、Purpur 共用同一个 JAR；其他兼容分支须保留对应 Paper API 与区域调度语义。Java 版本还须满足服务端自身要求。
+Shield targets the Paper 1.21.7 API and Java 21 bytecode. The same JAR runs on Paper, Folia and Purpur. Other forks must preserve the required Paper APIs and region scheduling semantics. Your Java version must also meet the server's own requirements.
 
-| 服务端 | Minecraft | Java | ProtocolLib |
+| Server | Minecraft | Java | ProtocolLib |
 | --- | --- | --- | --- |
 | Paper | 1.21.7 | 21 | 5.4.0 |
 | Folia | 1.21.8 | 21 | 5.4.0 |
-| Paper | 26.3 | 25 | 5.5.0-SNAPSHOT-d89a5de（Paper 构建） |
-| Folia | 26.3 | 25 | 5.5.0-SNAPSHOT-d89a5de（Paper 构建） |
-| Purpur | 26.3 | 25 | 5.5.0-SNAPSHOT-d89a5de（Paper 构建） |
+| Paper | 26.3 | 25 | 5.5.0-SNAPSHOT-d89a5de (Paper build) |
+| Folia | 26.3 | 25 | 5.5.0-SNAPSHOT-d89a5de (Paper build) |
+| Purpur | 26.3 | 25 | 5.5.0-SNAPSHOT-d89a5de (Paper build) |
 
-以上组合已验证插件加载、采集初始化、配置重载与正常停服，尚未覆盖真实玩家的跨区域移动、战斗、警告确认和线上推理接口。其他 Minecraft 版本与服务端分支尚未逐项验证。
+These combinations have passed checks for plugin loading, capture initialization, configuration reload and clean shutdown. Those checks do not cover live player movement across regions, combat, warning acknowledgement or the production inference API. Other Minecraft versions and server forks have not been individually verified.
 
-表中的 ProtocolLib Paper 开发构建要求 Minecraft 26.2 或更新版本，不能用于旧版服务端。原生 Spigot/Bukkit、Fabric、Forge 及 Velocity/BungeeCord 代理端不在兼容范围内。
+The ProtocolLib Paper development build listed above requires Minecraft 26.2 or later and cannot be used on older servers. Native Spigot/Bukkit, Fabric, Forge and Velocity/BungeeCord proxies are outside the supported scope.
 
-## 配置与命令
+## Configuration and commands
 
-完整配置见 [`config.yml`](src/main/resources/config.yml)。仅填写 `server-key` 时采用默认行动策略：警告开启，踢出关闭。开启踢出后，仍须收到远程服务授权的指令，并通过本地警告次数、冷却和有效期检查。
+See [`config.yml`](src/main/resources/config.yml) for the full configuration. Setting only `server-key` uses the default intervention policy: warnings enabled, kicks disabled. Even when kicks are enabled, each kick requires a directive authorized by the remote service and must pass local warning count, cooldown and expiry checks.
 
-| 命令 | 用途 |
+| Command | Purpose |
 | --- | --- |
-| `/shield` | 查看采集、传输与队列状态 |
-| `/shield reload` | 校验配置并重载行动策略 |
+| `/shield` | Show collection, delivery and queue status |
+| `/shield reload` | Validate configuration and reload the intervention policy |
 
-两条命令均支持控制台，玩家需要 `shield.admin` 权限，默认授予 OP。
+Both commands work from the console. Players need `shield.admin`, which defaults to OP.
 
 <details>
-<summary>行动策略与配置校验</summary>
+<summary>Intervention policy and validation</summary>
 
-以下配置项位于 `interventions` 下。
+These settings belong under `interventions`.
 
-| 配置项 | 默认值 | 说明 |
+| Setting | Default | Description |
 | --- | --- | --- |
-| `enabled` | `true` | 行动总开关 |
-| `warning.enabled` | `true` | 允许警告 |
-| `warning.cooldown-seconds` | `1800` | 警告冷却，范围 300–86400 秒 |
-| `warning.message` | `行为异常` | 玩家看到的警告文字 |
-| `kick.enabled` | `false` | 允许踢出 |
-| `kick.minimum-prior-warnings` | `1` | 至少成功确认的警告次数，范围 1–100 |
-| `kick.cooldown-seconds` | `3600` | 踢出冷却，范围 60–604800 秒 |
-| `kick.message` | `异常行为持续发生` | 玩家看到的踢出原因 |
+| `enabled` | `true` | Enable interventions |
+| `warning.enabled` | `true` | Allow warnings |
+| `warning.cooldown-seconds` | `1800` | Warning cooldown, 300–86400 seconds |
+| `warning.message` | `行为异常` | Warning text shown to the player |
+| `kick.enabled` | `false` | Allow kicks |
+| `kick.minimum-prior-warnings` | `1` | Required acknowledged warnings, 1–100 |
+| `kick.cooldown-seconds` | `3600` | Kick cooldown, 60–604800 seconds |
+| `kick.message` | `异常行为持续发生` | Kick reason shown to the player |
 
-两种 `message` 均须为 1–256 字符的单行文字。未知配置项、错误类型与越界值会阻止插件启动；重载时遇到无效配置则保留原配置。
+Both messages must be a single line of 1–256 characters. Unknown settings, incorrect types and out-of-range values prevent startup. Invalid configuration during reload leaves the current policy in effect.
 
-警告在玩家关闭提示后确认；踢出回执表示已调用踢出，不确认客户端断线。行动结果通过事件队列持久化、重试并上报，包含未启用、前置条件或冷却限制、玩家离线、指令过期及结果无效。
+Warnings are acknowledged when the player closes the dialog. A kick receipt confirms that the kick was invoked, not that the client disconnected. Outcomes are persisted, retried and reported through the event queue, including disabled actions, unmet prerequisites, cooldown limits, offline players, expired directives and invalid results.
 
 </details>
 
 <details>
-<summary>重载与状态保留</summary>
+<summary>Reload behavior and preserved state</summary>
 
-`/shield reload` 读取并校验整份配置后一次性替换行动策略。文件缺失、YAML 错误或配置无效时，现有策略继续生效。
+`/shield reload` reads and validates the entire configuration before replacing the intervention policy. Missing files, invalid YAML or invalid settings leave the current policy in effect.
 
-尚未开始执行的行动按新策略检查；已显示的警告继续原有确认与回执流程。重载保留事件队列、冷却记录、警告次数与回执，不重复执行历史指令。
+Actions that have not started are checked against the new policy. Warning dialogs already shown continue their existing acknowledgement and receipt flow. Reload preserves queued events, cooldowns, warning counts and receipts without repeating past directives.
 
-`server-key` 绑定服务器身份与上报队列，变更后必须重启服务器。检测到密钥变更时，整个重载会被拒绝，行动配置也保持原值。
+Changing `server-key` requires a server restart because the key identifies the server and its delivery queue. If a changed key is detected during reload, the entire reload is rejected, including changes to the intervention policy.
 
 </details>
 
-## 数据与服务
+## Data and service dependency
 
-插件通过 HTTPS 向 Shield 服务发送玩家 UUID、名称、世界、游戏模式、位置、行为事件、采集状态和行动回执，不采集聊天内容或自定义载荷。字段定义见 [`PacketSample`](src/main/kotlin/com/eyreland/shield/capture/PacketSample.kt)。
+The plugin sends player UUIDs, names, worlds, game modes, positions, behavior events, collection status and intervention receipts to the Shield service over HTTPS. It does not collect chat content or custom payloads. Event fields are defined in [`PacketSample`](src/main/kotlin/com/eyreland/shield/capture/PacketSample.kt).
 
-传输失败时，事件会进入本地队列并重试。待发送队列最多保留 4096 批次，磁盘缓存上限为 256 MiB，保留时间为 6 小时。超出容量或保留期限的数据会被清理，队列状态与丢弃计数可通过 `/shield` 查看。
+When delivery fails, events are queued locally and retried. The pending queue holds up to 4096 batches; the disk cache is limited to 256 MiB and a retention period of 6 hours. Data exceeding capacity or retention limits is removed. Run `/shield` to inspect queue status and drop counts.
 
-## 从源码构建
+## Building from source
 
-构建需要 JDK 25，使用仓库自带的 Gradle Wrapper。运行要求见[兼容范围](#兼容范围)。
+Use JDK 25 and the included Gradle Wrapper. Runtime requirements are listed under [Compatibility](#compatibility).
 
 ```bash
 ./gradlew build
 ```
 
-Windows 使用 `.\gradlew.bat build`。产物为 `build/libs/shield-<version>.jar`，可通过 `-Pversion=<version>` 指定版本号。依赖与打包配置见 [`build.gradle.kts`](build.gradle.kts)。
+On Windows, run `.\gradlew.bat build`. The output is `build/libs/shield-<version>.jar`. Set `-Pversion=<version>` to choose the version number. Dependencies and packaging are declared in [`build.gradle.kts`](build.gradle.kts).
 
-## 参与贡献
+## Contributing
 
-问题反馈请附服务端及 Minecraft 版本、Java 版本、ProtocolLib 版本、Shield 版本、复现步骤与相关日志。发布日志前移除接入密钥和玩家个人信息。
+For bug reports, include your server software and Minecraft version, Java version, ProtocolLib version, Shield version, reproduction steps and relevant logs. Remove server keys and player personal information before sharing logs.
 
-欢迎提交修复与兼容性改进。每个 PR 聚焦一个问题，提交和 PR 标题使用 `fix: 中文标题`、`feat: 中文标题` 或 `docs: 中文标题` 等格式。
+Fixes and compatibility improvements are welcome. English is recommended for issues and pull requests; other languages are welcome. Keep each PR focused on one problem and use Conventional Commit prefixes such as `fix:`, `feat:` or `docs:` for commit and PR titles.
 
-## 许可证
+## License
 
 Copyright (C) 2026 PluginsKers.
 
-项目源码使用 [AGPL-3.0-only](LICENSE)，附 Minecraft 服务端和 ProtocolLib 链接许可。[NOTICE](NOTICE) 包含该许可及随 JAR 分发的第三方组件声明。
+Plugin source is licensed under [AGPL-3.0-only](LICENSE), with an additional linking permission for Minecraft servers and ProtocolLib. See [NOTICE](NOTICE) for that permission and the third-party notices included in the JAR.
