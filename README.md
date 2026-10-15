@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/brand.svg#lockup-dark">
-    <img src="assets/brand.svg#lockup-light" alt="Shield" width="294" height="80">
-  </picture>
+  <img src="assets/brand.svg" alt="Shield" width="294" height="80">
 </p>
 
 <p align="center">
