@@ -84,7 +84,7 @@ class PlayerInterventionService(
                     plugin,
                     { apply(player, directive) },
                     { finish(directive, InterventionOutcome.PLAYER_OFFLINE) },
-                )
+                ) ?: finish(directive, InterventionOutcome.PLAYER_OFFLINE)
             }
         }.onFailure {
             logger.log(Level.WARNING, "无法调度玩家干预: ${directive.directiveId}", it)

@@ -1,5 +1,6 @@
 package com.eyreland.shield.inference
 
+import com.eyreland.shield.config.InterventionConfig
 import com.eyreland.shield.config.ReloadableConfig
 import io.papermc.paper.threadedregions.scheduler.EntityScheduler
 import io.papermc.paper.threadedregions.scheduler.GlobalRegionScheduler
@@ -9,6 +10,8 @@ import org.bukkit.Server
 import org.bukkit.entity.Player
 import org.bukkit.plugin.Plugin
 import org.junit.jupiter.api.io.TempDir
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import java.lang.reflect.Proxy
 import java.nio.file.Path
 import java.time.Clock
@@ -27,6 +30,74 @@ import kotlin.test.assertIs
 class PlayerInterventionReloadTest {
     @TempDir
     lateinit var temporaryDirectory: Path
+
+    @ParameterizedTest
+    @ValueSource(booleans = [true, false])
+    fun `player retirement completes the directive before or after scheduling`(alreadyRetired: Boolean) {
+        val callbacks = ArrayDeque<Consumer<ScheduledTask>>()
+        val task = proxy<ScheduledTask> { name, _ -> error("Unexpected task call: $name") }
+        var retiredCallback: Runnable? = null
+        val entityScheduler = proxy<EntityScheduler> { name, args ->
+            check(name == "run")
+            if (alreadyRetired) null else {
+                retiredCallback = args[2] as Runnable
+                task
+            }
+        }
+        val globalScheduler = proxy<GlobalRegionScheduler> { name, args ->
+            check(name == "run")
+            @Suppress("UNCHECKED_CAST")
+            callbacks.addLast(args[1] as Consumer<ScheduledTask>)
+            task
+        }
+        val player = proxy<Player> { name, _ ->
+            when (name) {
+                "isOnline" -> true
+                "getScheduler" -> entityScheduler
+                else -> error("Unexpected player call: $name")
+            }
+        }
+        val server = proxy<Server> { name, _ ->
+            when (name) {
+                "getGlobalRegionScheduler" -> globalScheduler
+                "getPlayer" -> player
+                else -> error("Unexpected server call: $name")
+            }
+        }
+        val plugin = proxy<Plugin> { name, _ ->
+            check(name == "getServer")
+            server
+        }
+        val now = 1_900_000_000_000L
+        val directive = PlayerInterventionDirective(
+            "retired", UUID.randomUUID(), InterventionKind.WARN, "test", now, now + 60_000,
+        )
+        val ledgerPath = temporaryDirectory.resolve("ledger.properties")
+        val receipts = CopyOnWriteArrayList<InterventionReceipt>()
+        val executor = Executors.newSingleThreadScheduledExecutor()
+        val service = PlayerInterventionService(
+            plugin, InterventionConfig::defaults, ledgerPath, executor,
+            { receipts += it; true }, Logger.getAnonymousLogger(),
+            Clock.fixed(Instant.ofEpochMilli(now), ZoneOffset.UTC),
+        )
+        try {
+            service.start()
+            service.accept(listOf(directive))
+            callbacks.removeFirst().accept(task)
+            if (!alreadyRetired) checkNotNull(retiredCallback).run()
+            executor.submit {}.get(5, TimeUnit.SECONDS)
+
+            assertEquals(listOf(InterventionOutcome.PLAYER_OFFLINE), receipts.map { it.outcome })
+            val persisted = InterventionLedger(ledgerPath)
+            assertEquals(emptyList(), persisted.pending())
+            assertEquals(receipts.toList(), persisted.pendingReceipts())
+            service.accept(listOf(directive))
+            assertEquals(0, callbacks.size)
+        } finally {
+            service.stop()
+            executor.shutdownNow()
+        }
+    }
 
     @Test
     fun `queued actions use new policy while warnings cooldown and receipt dedupe survive reload`() {
