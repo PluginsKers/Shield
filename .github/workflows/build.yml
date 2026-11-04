@@ -41,15 +41,15 @@ jobs:
         run: bash ./gradlew --no-daemon build -Pversion="$VERSION"
 
       - name: Checksum
-        working-directory: build/libs
-        run: sha256sum "shield-$VERSION.jar" > SHA256SUMS
+        working-directory: build/distributions
+        run: sha256sum *.jar > SHA256SUMS
 
       - uses: actions/upload-artifact@v7
         with:
           name: shield-${{ env.VERSION }}
           path: |
-            build/libs/shield-${{ env.VERSION }}.jar
-            build/libs/SHA256SUMS
+            build/distributions/*.jar
+            build/distributions/SHA256SUMS
           if-no-files-found: error
           retention-days: 30
 

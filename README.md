@@ -24,7 +24,7 @@ To use Shield, register a server in the [dashboard](https://shield.i5res.com/das
 ## Getting started
 
 1. Check the [compatibility table](#compatibility) below and install a ProtocolLib build that supports your Minecraft version.
-2. Download `shield-<version>.jar` from [Releases](https://github.com/PluginsKers/Shield/releases) and place it in your server's `plugins` directory.
+2. Download `shield-<version>-mc<minecraft-version>.jar` from [Releases](https://github.com/PluginsKers/Shield/releases) and place it in your server's `plugins` directory. The universal `shield-<version>.jar` contains the same plugin. Install only one Shield JAR.
 3. Register your server in the Shield dashboard and save its connection configuration to `plugins/shield/config.yml`. Create the directory if needed. The minimal configuration is:
 
    ```yaml
@@ -44,11 +44,15 @@ The current compatibility matrix uses ProtocolLib 5.5.0-SNAPSHOT from [Jenkins b
 | Minecraft | Java | Folia build | Canvas build | ProtocolLib artifact |
 | --- | --- | --- | --- | --- |
 | 1.21.11 | 21 | 14 | 794 | `ProtocolLib-Spigot.jar` |
+| 26.1 | 25 | — | — | `ProtocolLib-Spigot.jar` |
+| 26.1.1 | 25 | — | — | `ProtocolLib-Spigot.jar` |
 | 26.1.2 | 25 | 8 | 876 | `ProtocolLib-Spigot.jar` |
 | 26.2 | 25 | 7 | 994 | `ProtocolLib.jar` (Paper) |
 | 26.3 | 25 | 6 | 1001 | `ProtocolLib.jar` (Paper) |
 
-All eight combinations have passed plugin loading, capture initialization, status and control commands, configuration reload and clean shutdown. Folia and Canvas 26.3 also cover player login, heartbeats, cross-region teleport and chat warning delivery with receipts against a local service fixture. These checks do not verify combat detection accuracy or the production inference service.
+The eight combinations with published server builds have passed plugin loading, capture initialization, status and control commands, configuration reload and clean shutdown. Folia and Canvas 26.3 also cover player login, heartbeats, cross-region teleport and chat warning delivery with receipts against a local service fixture. These checks do not verify combat detection accuracy or the production inference service.
+
+Packages are also provided for Minecraft 26.1 and 26.1.1. Neither Folia nor Canvas lists official builds for these versions, so these two packages have not been runtime-tested on those servers.
 
 The ProtocolLib Paper artifact requires Minecraft 26.2 or later. Use its Spigot artifact on the older versions listed above, including Folia and Canvas. Native Spigot/Bukkit, Fabric, Forge and Velocity/BungeeCord proxies are outside the supported scope.
 
@@ -98,9 +102,9 @@ Use JDK 25 and the included Gradle Wrapper. Runtime requirements are listed unde
 ./gradlew build
 ```
 
-On Windows, run `.\gradlew.bat build`. The output is `build/libs/shield-<version>.jar`. Set `-Pversion=<version>` to choose the version number. Dependencies and packaging are declared in [`build.gradle.kts`](build.gradle.kts).
+On Windows, run `.\gradlew.bat build`. `build/distributions` contains the universal `shield-<version>.jar` and six files named `shield-<version>-mc<minecraft-version>.jar` for the versions in the table. Every file contains the same universal plugin. Set `-Pversion=<version>` to choose the plugin version number. Dependencies and packaging are declared in [`build.gradle.kts`](build.gradle.kts).
 
-[GitHub Actions](https://github.com/PluginsKers/Shield/actions/workflows/build.yml) builds pull requests, updates to `main` and manual runs, and uploads the JAR with `SHA256SUMS`. Pushing a `vX.Y.Z` tag builds that version and publishes both files in a GitHub Release. All supported server versions share this artifact.
+[GitHub Actions](https://github.com/PluginsKers/Shield/actions/workflows/build.yml) builds pull requests, updates to `main` and manual runs, and uploads all seven JARs with `SHA256SUMS`. Pushing a `vX.Y.Z` tag builds that plugin version and publishes the packages and checksum file in a GitHub Release.
 
 ## Contributing
 

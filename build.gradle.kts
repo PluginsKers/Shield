@@ -29,6 +29,16 @@ dependencies {
     compileOnly("net.dmulloy2:ProtocolLib:5.4.0")
 }
 
+val releasePackages by tasks.registering(Sync::class) {
+    into(layout.buildDirectory.dir("distributions"))
+    from(tasks.shadowJar)
+    listOf("1.21.11", "26.1", "26.1.1", "26.1.2", "26.2", "26.3").forEach { minecraftVersion ->
+        from(tasks.shadowJar) {
+            rename { name -> "${name.removeSuffix(".jar")}-mc$minecraftVersion.jar" }
+        }
+    }
+}
+
 tasks {
     withType<JavaCompile>().configureEach {
         options.encoding = "UTF-8"
@@ -55,6 +65,6 @@ tasks {
     }
 
     build {
-        dependsOn(shadowJar)
+        dependsOn(releasePackages)
     }
 }
