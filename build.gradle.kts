@@ -18,12 +18,8 @@ kotlin {
 }
 
 repositories {
-    // Aliyun mirror (CN 访问 mavenCentral 的缓存代理)
-    maven("https://maven.aliyun.com/repository/public")
-    maven("https://maven.aliyun.com/repository/gradle-plugin")
     mavenCentral()
     maven("https://repo.papermc.io/repository/maven-public/")
-    maven("https://repo.dmulloy2.net/repository/public/")
 }
 
 dependencies {
