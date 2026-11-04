@@ -18,12 +18,8 @@ kotlin {
 }
 
 repositories {
-    // Aliyun mirror (CN 访问 mavenCentral 的缓存代理)
-    maven("https://maven.aliyun.com/repository/public")
-    maven("https://maven.aliyun.com/repository/gradle-plugin")
     mavenCentral()
     maven("https://repo.papermc.io/repository/maven-public/")
-    maven("https://repo.dmulloy2.net/repository/public/")
 }
 
 dependencies {
@@ -31,6 +27,16 @@ dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.7-R0.1-SNAPSHOT")
     // 运行时应安装明确支持目标 Minecraft 版本的 ProtocolLib 构建。
     compileOnly("net.dmulloy2:ProtocolLib:5.4.0")
+}
+
+val releasePackages by tasks.registering(Sync::class) {
+    into(layout.buildDirectory.dir("distributions"))
+    from(tasks.shadowJar)
+    listOf("1.21.11", "26.1", "26.1.1", "26.1.2", "26.2", "26.3").forEach { minecraftVersion ->
+        from(tasks.shadowJar) {
+            rename { name -> "${name.removeSuffix(".jar")}-mc$minecraftVersion.jar" }
+        }
+    }
 }
 
 tasks {
@@ -59,6 +65,6 @@ tasks {
     }
 
     build {
-        dependsOn(shadowJar)
+        dependsOn(releasePackages)
     }
 }

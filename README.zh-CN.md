@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>适用于 Paper、Folia 与 Purpur 的行为采集插件</strong>
+  <strong>适用于 Paper、Folia、Canvas 与 Purpur 的行为采集插件</strong>
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@ Shield 采集玩家移动、战斗与交互事件，异步发送到 Shield 服�
 ## 开始使用
 
 1. 根据下方[兼容范围](#兼容范围)准备服务端，并安装支持该 Minecraft 版本的 ProtocolLib。
-2. 从[发行版](https://github.com/PluginsKers/Shield/releases)下载 `shield-<version>.jar`，放入服务端的 `plugins` 目录。
+2. 从[发行版](https://github.com/PluginsKers/Shield/releases)下载 `shield-<version>-mc<minecraft-version>.jar`，放入服务端的 `plugins` 目录。通用包 `shield-<version>.jar` 包含同一插件，只安装一个 Shield JAR。
 3. 在 Shield 后台创建服务器，将接入配置保存到 `plugins/shield/config.yml`；目录不存在时先创建。最小配置如下：
 
    ```yaml
@@ -37,19 +37,24 @@ Shield 采集玩家移动、战斗与交互事件，异步发送到 Shield 服�
 
 ## 兼容范围
 
-插件基于 Paper 1.21.7 API，使用 Java 21 字节码。Paper、Folia、Purpur 共用同一个 JAR；其他兼容分支须保留对应 Paper API 与区域调度语义。Java 版本还须满足服务端自身要求。
+插件基于 Paper 1.21.7 API，使用 Java 21 字节码。Paper、Folia、Canvas、Purpur 共用同一个 JAR；其他兼容分支须保留对应 Paper API 与区域调度语义。Java 版本还须满足服务端自身要求。
 
-| 服务端 | Minecraft | Java | ProtocolLib |
-| --- | --- | --- | --- |
-| Paper | 1.21.7 | 21 | 5.4.0 |
-| Folia | 1.21.8 | 21 | 5.4.0 |
-| Paper | 26.3 | 25 | 5.5.0-SNAPSHOT-d89a5de（Paper 构建） |
-| Folia | 26.3 | 25 | 5.5.0-SNAPSHOT-d89a5de（Paper 构建） |
-| Purpur | 26.3 | 25 | 5.5.0-SNAPSHOT-d89a5de（Paper 构建） |
+当前兼容矩阵使用 [Jenkins 构建 769](https://ci.dmulloy2.net/job/ProtocolLib/769/) 的 ProtocolLib 5.5.0-SNAPSHOT：
 
-以上组合已验证插件加载、采集初始化、配置重载与正常停服，尚未覆盖真实玩家的跨区域移动、战斗、警告确认和线上推理接口。其他 Minecraft 版本与服务端分支尚未逐项验证。
+| Minecraft | Java | Folia 构建 | Canvas 构建 | ProtocolLib 产物 |
+| --- | --- | --- | --- | --- |
+| 1.21.11 | 21 | 14 | 794 | `ProtocolLib-Spigot.jar` |
+| 26.1 | 25 | — | — | `ProtocolLib-Spigot.jar` |
+| 26.1.1 | 25 | — | — | `ProtocolLib-Spigot.jar` |
+| 26.1.2 | 25 | 8 | 876 | `ProtocolLib-Spigot.jar` |
+| 26.2 | 25 | 7 | 994 | `ProtocolLib.jar`（Paper） |
+| 26.3 | 25 | 6 | 1001 | `ProtocolLib.jar`（Paper） |
 
-表中的 ProtocolLib Paper 开发构建要求 Minecraft 26.2 或更新版本，不能用于旧版服务端。原生 Spigot/Bukkit、Fabric、Forge 及 Velocity/BungeeCord 代理端不在兼容范围内。
+已有官方服务端构建的八组组合均已验证插件加载、采集初始化、状态与开关命令、配置重载和正常停服。Folia 与 Canvas 26.3 还通过本地服务桩验证了玩家登录、心跳、跨区域传送、聊天警告送达及回执。这些检查不覆盖战斗判定准确性与线上推理服务。
+
+同时提供 Minecraft 26.1 和 26.1.1 的命名包。Folia 与 Canvas 均未列出这两个版本的官方构建，因此这两个包尚未在对应服务端上实测。
+
+ProtocolLib 的 Paper 产物要求 Minecraft 26.2 或更新版本。表中更早版本的 Folia 和 Canvas 须使用其 Spigot 产物。原生 Spigot/Bukkit、Fabric、Forge 及 Velocity/BungeeCord 代理端不在兼容范围内。
 
 ## 配置与命令
 
@@ -99,7 +104,9 @@ Shield 采集玩家移动、战斗与交互事件，异步发送到 Shield 服�
 ./gradlew build
 ```
 
-Windows 使用 `.\gradlew.bat build`。产物为 `build/libs/shield-<version>.jar`，可通过 `-Pversion=<version>` 指定版本号。依赖与打包配置见 [`build.gradle.kts`](build.gradle.kts)。
+Windows 使用 `.\gradlew.bat build`。`build/distributions` 包含通用包 `shield-<version>.jar`，以及表中六个 Minecraft 版本对应的 `shield-<version>-mc<minecraft-version>.jar`。所有文件包含同一通用插件，可通过 `-Pversion=<version>` 指定插件版本号。依赖与打包配置见 [`build.gradle.kts`](build.gradle.kts)。
+
+[GitHub Actions](https://github.com/PluginsKers/Shield/actions/workflows/build.yml) 在 PR、`main` 更新和手动运行时构建，上传七个 JAR 与 `SHA256SUMS`。推送 `vX.Y.Z` 标签会按标签中的插件版本构建，并将全部包与校验和文件发布到 GitHub Release。
 
 ## 参与贡献
 
