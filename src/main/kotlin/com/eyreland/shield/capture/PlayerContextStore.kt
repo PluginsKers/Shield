@@ -23,13 +23,20 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class PlayerContextStore(private val plugin: Plugin) : Listener {
     private val contexts = ConcurrentHashMap<UUID, CaptureContext>()
+    @Volatile private var started = false
 
     fun start() {
+        started = true
         plugin.server.pluginManager.registerEvents(this, plugin)
-        for (player in plugin.server.onlinePlayers) beginSession(player)
+        for (player in plugin.server.onlinePlayers) {
+            player.scheduler.run(plugin, {
+                if (started && player.isOnline) beginSession(player)
+            }, null)
+        }
     }
 
     fun stop() {
+        started = false
         HandlerList.unregisterAll(this)
         contexts.clear()
     }
@@ -64,7 +71,9 @@ class PlayerContextStore(private val plugin: Plugin) : Listener {
 
     private fun beginSession(player: Player) {
         val now = System.currentTimeMillis()
-        contexts[player.uniqueId] = fromLocation(player, UUID.randomUUID(), now, player.location)
+        contexts.computeIfAbsent(player.uniqueId) {
+            fromLocation(player, UUID.randomUUID(), now, player.location)
+        }
     }
 
     private fun refresh(player: Player) {

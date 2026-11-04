@@ -21,6 +21,7 @@ data class CaptureEnrichment(
     val sessionAgeMs: Long,
     val sincePreviousUs: Long?,
     val sessionMonotonicUs: Long,
+    val clientTick: Long?,
     val x: Double?,
     val y: Double?,
     val z: Double?,
@@ -42,7 +43,7 @@ data class CaptureEnrichment(
 
 /**
  * 按后端连接会话维护完整姿态，并在真正发送时计算相邻样本特征。
- * 观察态与已选中态分离：节流掉的移动仍会更新当前姿态，但 delta 始终相对上一条已选样本。
+ * 观察态与已发送态分离：挂机或旁观时未发送的移动仍会更新当前姿态，但 delta 始终相对上一条已发送样本。
  */
 class CaptureStateStore {
     private class State(context: CaptureContext) {
@@ -66,6 +67,7 @@ class CaptureStateStore {
         var lastSampleNanos: Long? = null
         var firstSampleNanos: Long? = null
         var lastMonotonicUs: Long = -1
+        var clientTick: Long? = null
     }
 
     private val states = ConcurrentHashMap<UUID, State>()
@@ -82,6 +84,14 @@ class CaptureStateStore {
             movement.pitch?.let { state.pitch = it }
             movement.onGround?.let { state.onGround = it }
             movement.horizontalCollision?.let { state.horizontalCollision = it }
+        }
+    }
+
+    /** 1.21.2+ 客户端每刻结束发一个包；计数随会话累加，换世界不清零。 */
+    fun countClientTick(context: CaptureContext) {
+        val state = stateFor(context)
+        synchronized(state) {
+            state.clientTick = (state.clientTick ?: 0L) + 1L
         }
     }
 
@@ -115,6 +125,7 @@ class CaptureStateStore {
                 sessionAgeMs = (nowMs - context.joinedAtMs).coerceAtLeast(0L),
                 sincePreviousUs = sincePreviousUs,
                 sessionMonotonicUs = sessionMonotonicUs,
+                clientTick = state.clientTick,
                 x = state.x,
                 y = state.y,
                 z = state.z,

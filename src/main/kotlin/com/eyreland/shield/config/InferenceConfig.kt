@@ -27,8 +27,12 @@ data class InferenceConfig(
 ) {
     companion object {
         fun from(root: ConfigurationSection): InferenceConfig {
-            require(root.getKeys(false).all { it in setOf("server-key", "interventions") }) {
-                "配置仅支持 server-key 与 interventions"
+            require(root.getKeys(false).all { it in setOf("server-key", "endpoint", "enabled", "interventions") }) {
+                "配置仅支持 server-key、endpoint、enabled 与 interventions"
+            }
+            val endpoint = runCatching { URI(root.getString("endpoint", "https://api.i5res.com/shield/v1/events")!!.trim()) }.getOrNull()
+            require(endpoint != null && endpoint.scheme in setOf("http", "https") && !endpoint.host.isNullOrEmpty()) {
+                "endpoint 须为 http 或 https 地址"
             }
             val key = root.getString("server-key").orEmpty().trim()
             val parts = key.removePrefix("shd_").split('.')
@@ -39,7 +43,7 @@ data class InferenceConfig(
             val serverId = runCatching { UUID.fromString(parts[0]).toString() }.getOrNull()
             require(serverId == parts[0]) { "server-key 中的服务器标识无效" }
             return InferenceConfig(
-                endpoint = URI("https://api.i5res.com/shield/v1/events"),
+                endpoint = endpoint,
                 keyId = parts[0],
                 hmacSecret = parts[1],
                 batchSize = 500,

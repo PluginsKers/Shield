@@ -7,7 +7,6 @@ import com.comphenix.protocol.events.ListenerPriority
 import com.comphenix.protocol.events.PacketAdapter
 import com.comphenix.protocol.events.PacketEvent
 import com.eyreland.shield.config.CaptureConfig
-import com.eyreland.shield.config.PacketRule
 import com.eyreland.shield.inference.EventSink
 import com.eyreland.shield.inference.CollectionTelemetry
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask
@@ -21,11 +20,14 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.ReentrantReadWriteLock
 import java.util.logging.Level
 import java.util.logging.Logger
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 
 /**
- * ProtocolLib 入站采集管线：运行时类型解析 -> 稳定语义解码 -> 上下文/过滤 -> 节流 -> 派生特征 -> 非阻塞入队。
+ * ProtocolLib 入站采集管线：运行时类型解析 -> 稳定语义解码 -> 上下文/过滤 -> 派生特征 -> 非阻塞入队。
  *
  * 网络线程不会读取 Player.world/location/gameMode，也不会做数据库 I/O。PacketType 通过当前运行时的
  * Play.Client 枚举按名称解析，不直接引用可能弃用或仅存在于某代 Minecraft 的静态常量。
@@ -43,17 +45,16 @@ class PacketCaptureService(
     private var serverVersion: String = "unknown"
 
     private val definitionByType = HashMap<PacketType, PacketDefinition>()
-    private val ruleByType = HashMap<PacketType, PacketRule>()
     private val selectedTypes = HashSet<PacketType>()
     private val fallbackContexts = ConcurrentHashMap<UUID, CaptureContext>()
     private val observedProtocols = ConcurrentHashMap<UUID, Int>()
     private val activeSessions = ConcurrentHashMap<UUID, UUID>()
     private val capturedPlayers = CapturedPlayerIntervals()
     private val state = CaptureStateStore()
-    private val rateLimiter = CaptureRateLimiter()
     private val afk = AfkTracker(config.afkTimeoutMs)
 
     private val decodeFailed = AtomicLong()
+    private val captureLock = ReentrantReadWriteLock()
     @Volatile var enabled: Boolean = false
         private set
 
@@ -68,7 +69,7 @@ class PacketCaptureService(
 
         val unsupported = linkedSetOf<String>()
         val active = linkedSetOf<String>()
-        for ((name, rule) in config.packets) {
+        for (name in config.packets) {
             val definition = PacketCatalog.definitions[name]
             val type = runtimeTypes[name]
             if (definition == null || type == null) {
@@ -76,15 +77,11 @@ class PacketCaptureService(
                 continue
             }
             definitionByType[type] = definition
-            ruleByType[type] = rule
             selectedTypes += type
             active += name
         }
 
-        val observerNames = linkedSetOf<String>().apply {
-            addAll(PacketCatalog.movementObserverNames)
-            if (afk.enabled) addAll(PacketCatalog.activityObserverNames)
-        }
+        val observerNames = PacketCatalog.activityObserverNames + "CLIENT_TICK_END"
         for (name in observerNames) {
             val definition = PacketCatalog.definitions[name] ?: continue
             val type = runtimeTypes[name] ?: continue
@@ -122,7 +119,8 @@ class PacketCaptureService(
     }
 
     fun stop() {
-        enabled = false
+        // 会话关闭必须排在所有在途采集记录之后。
+        captureLock.write { enabled = false }
         telemetryTask?.cancel()
         telemetryTask = null
         val pm = protocolManager
@@ -132,7 +130,6 @@ class PacketCaptureService(
         adapter = null
         protocolManager = null
         definitionByType.clear()
-        ruleByType.clear()
         selectedTypes.clear()
         fallbackContexts.clear()
         observedProtocols.clear()
@@ -140,22 +137,21 @@ class PacketCaptureService(
         activeSessions.clear()
         capturedPlayers.clear()
         state.clear()
-        rateLimiter.clear()
         afk.clear()
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
-    fun onQuit(event: PlayerQuitEvent) {
+    fun onQuit(event: PlayerQuitEvent): Unit = captureLock.read {
+        if (!enabled) return
         val uuid = event.player.uniqueId
         fallbackContexts.remove(uuid)
         observedProtocols.remove(uuid)
         activeSessions.remove(uuid)?.let(sink::closeSession)
         state.remove(uuid)
-        rateLimiter.remove(uuid)
         afk.remove(uuid)
     }
 
-    private fun handle(event: PacketEvent) {
+    private fun handle(event: PacketEvent): Unit = captureLock.read {
         if (!enabled) return
         val definition = definitionByType[event.packetType] ?: return
         val player = event.player ?: return
@@ -163,8 +159,11 @@ class PacketCaptureService(
         val name = runCatching { player.name }.getOrNull()?.takeIf(String::isNotEmpty) ?: return
         val context = contexts.get(uuid) ?: fallbackContext(uuid, name)
         activeSessions[uuid] = context.sessionId
-        val rule = ruleByType[event.packetType]
-        val isSelected = event.packetType in selectedTypes && rule != null
+        if (definition.name == "CLIENT_TICK_END") {
+            state.countClientTick(context)
+            return
+        }
+        val isSelected = event.packetType in selectedTypes
         val nowMs = System.currentTimeMillis()
         val nowNanos = System.nanoTime()
 
@@ -188,7 +187,6 @@ class PacketCaptureService(
         updateActivity(definition, decoded, uuid, nowMs)
 
         if (!isSelected) return
-        val selectedRule = checkNotNull(rule)
 
         val observedProtocol = observedProtocols[uuid] ?: protocolManager
             ?.let { runCatching { it.getProtocolVersion(player) }.getOrNull() }
@@ -198,9 +196,6 @@ class PacketCaptureService(
             return
         }
         if (afk.isAfk(uuid, nowMs)) {
-            return
-        }
-        if (!rateLimiter.allow(uuid, selectedRule, nowNanos)) {
             return
         }
 
@@ -216,6 +211,7 @@ class PacketCaptureService(
             sessionAgeMs = derived.sessionAgeMs,
             sincePreviousUs = derived.sincePreviousUs,
             sessionMonotonicUs = derived.sessionMonotonicUs,
+            clientTick = derived.clientTick,
             serverId = config.serverId,
             proxyMode = config.proxyMode,
             playerUuid = uuid,
@@ -278,7 +274,7 @@ class PacketCaptureService(
         targetEntityType: String? = null,
         observedProtocol: Int? = null,
         payload: Map<String, Any?> = emptyMap(),
-    ): Boolean {
+    ): Boolean = captureLock.read {
         if (!enabled) return false
         val context = contexts.get(playerUuid) ?: return false
         if (observedProtocol != null) observedProtocols.putIfAbsent(playerUuid, observedProtocol)
@@ -297,6 +293,7 @@ class PacketCaptureService(
             sessionAgeMs = derived.sessionAgeMs,
             sincePreviousUs = derived.sincePreviousUs,
             sessionMonotonicUs = derived.sessionMonotonicUs,
+            clientTick = derived.clientTick,
             serverId = config.serverId,
             proxyMode = config.proxyMode,
             playerUuid = playerUuid,
@@ -361,7 +358,7 @@ class PacketCaptureService(
 
     private fun isEligible(context: CaptureContext): Boolean = config.allowsGameMode(context.gameMode)
 
-    private fun emitCollectionTelemetry() {
+    private fun emitCollectionTelemetry(): Unit = captureLock.read {
         if (!enabled) return
         val eligible = contexts.snapshot()
             .filter(::isEligible)

@@ -1,6 +1,8 @@
 package com.eyreland.shield.command
 
 import com.eyreland.shield.capture.PacketCaptureService
+import com.eyreland.shield.config.ReloadableConfig
+import com.eyreland.shield.config.ShieldControl
 import com.eyreland.shield.inference.EventSink
 import com.eyreland.shield.inference.EventSinkStats
 import org.bukkit.command.Command
@@ -14,20 +16,37 @@ import java.util.Locale
 internal enum class ShieldCommandAction {
     STATUS,
     RELOAD,
+    ENABLE,
+    DISABLE,
+    ENABLE_INTERVENTIONS,
+    DISABLE_INTERVENTIONS,
     USAGE,
 }
 
 internal object ShieldCommandView {
-    const val USAGE = "§e用法: §f/shield [reload]"
+    const val USAGE = "§e用法: §f/shield [reload|enable|disable] 或 /shield interventions <enable|disable>"
     const val NO_PERMISSION = "§c你没有权限使用此命令"
-    const val RELOADED = "§f行动配置已重载"
-    const val INVALID_YAML = "§c配置重载失败, 保留原配置: config.yml 的 YAML 格式错误"
-    const val UNREADABLE_CONFIG = "§c配置重载失败, 保留原配置: 无法读取 config.yml"
-    fun action(args: List<String>): ShieldCommandAction = when {
-        args.isEmpty() -> ShieldCommandAction.STATUS
-        args.size == 1 && args[0].equals("reload", ignoreCase = true) -> ShieldCommandAction.RELOAD
+    const val RELOADED = "§f配置已重载"
+    const val INVALID_YAML = "§c配置更新失败, 保留原配置: config.yml 的 YAML 格式错误"
+    const val UNREADABLE_CONFIG = "§c配置更新失败, 保留原配置: 无法读写 config.yml"
+    fun action(args: List<String>): ShieldCommandAction = when (args.map { it.lowercase(Locale.ROOT) }) {
+        emptyList<String>() -> ShieldCommandAction.STATUS
+        listOf("reload") -> ShieldCommandAction.RELOAD
+        listOf("enable") -> ShieldCommandAction.ENABLE
+        listOf("disable") -> ShieldCommandAction.DISABLE
+        listOf("interventions", "enable") -> ShieldCommandAction.ENABLE_INTERVENTIONS
+        listOf("interventions", "disable") -> ShieldCommandAction.DISABLE_INTERVENTIONS
         else -> ShieldCommandAction.USAGE
     }
+
+    fun controls(shieldEnabled: Boolean, interventionsEnabled: Boolean): List<String> = listOf(
+        "§7Shield: ${if (shieldEnabled) "§f已开启" else "§e已关闭 (采集与上报已暂停)"}",
+        "§7玩家处置: ${when {
+            !interventionsEnabled -> "§e已关闭"
+            !shieldEnabled -> "§e已暂停 (配置已开启)"
+            else -> "§f已开启"
+        }}",
+    )
 
     fun status(
         captureEnabled: Boolean,
@@ -82,11 +101,13 @@ internal object ShieldCommandView {
     private fun number(value: Number): String = String.format(Locale.ROOT, "%,d", value.toLong())
 }
 
-/** `/shield` 查看状态，`/shield reload` 重载行动配置。 */
+/** 管理整体开关、玩家处置与配置，所有修改在全局区域线程串行执行。 */
 class ShieldCommand(
     private val capture: () -> PacketCaptureService?,
     private val sink: () -> EventSink?,
-    private val reloadConfig: () -> Unit,
+    private val configuration: ReloadableConfig,
+    private val onConfigChanged: () -> Unit,
+    private val execute: (() -> Unit) -> Unit,
 ) : CommandExecutor, TabCompleter {
 
     override fun onCommand(
@@ -99,30 +120,49 @@ class ShieldCommand(
             sender.sendMessage(ShieldCommandView.NO_PERMISSION)
             return true
         }
-        when (ShieldCommandView.action(args.toList())) {
-            ShieldCommandAction.STATUS -> status(sender)
-            ShieldCommandAction.RELOAD -> reload(sender)
-            ShieldCommandAction.USAGE -> sender.sendMessage(ShieldCommandView.USAGE)
+        val action = ShieldCommandView.action(args.toList())
+        execute {
+            when (action) {
+                ShieldCommandAction.STATUS -> status(sender)
+                ShieldCommandAction.RELOAD -> update(sender, ShieldCommandView.RELOADED, configuration::reload)
+                ShieldCommandAction.ENABLE -> setEnabled(sender, ShieldControl.SHIELD, true)
+                ShieldCommandAction.DISABLE -> setEnabled(sender, ShieldControl.SHIELD, false)
+                ShieldCommandAction.ENABLE_INTERVENTIONS -> setEnabled(sender, ShieldControl.INTERVENTIONS, true)
+                ShieldCommandAction.DISABLE_INTERVENTIONS -> setEnabled(sender, ShieldControl.INTERVENTIONS, false)
+                ShieldCommandAction.USAGE -> sender.sendMessage(ShieldCommandView.USAGE)
+            }
         }
         return true
     }
 
-    private fun reload(sender: CommandSender) {
+    private fun setEnabled(sender: CommandSender, control: ShieldControl, enabled: Boolean) {
+        val name = if (control == ShieldControl.SHIELD) "Shield" else "玩家处置"
+        val state = if (enabled) "开启" else "关闭"
+        update(sender, "§f$name 已$state") { configuration.setEnabled(control, enabled) }
+    }
+
+    private fun update(sender: CommandSender, success: String, change: () -> Unit) {
         try {
-            reloadConfig()
-            sender.sendMessage(ShieldCommandView.RELOADED)
+            change()
         } catch (_: InvalidConfigurationException) {
             sender.sendMessage(ShieldCommandView.INVALID_YAML)
+            return
         } catch (_: IOException) {
             sender.sendMessage(ShieldCommandView.UNREADABLE_CONFIG)
+            return
         } catch (invalid: IllegalArgumentException) {
-            sender.sendMessage("§c配置重载失败, 保留原配置: ${invalid.message}")
+            sender.sendMessage("§c配置更新失败, 保留原配置: ${invalid.message}")
+            return
         }
+        onConfigChanged()
+        sender.sendMessage(success)
     }
 
     private fun status(sender: CommandSender) {
         val captureService = capture()
         val eventSink = sink()
+        val config = configuration.current
+        ShieldCommandView.controls(config.enabled, config.interventions.enabled).forEach(sender::sendMessage)
         ShieldCommandView.status(
             captureEnabled = captureService?.enabled == true,
             sinkStats = eventSink?.stats(),
@@ -135,9 +175,13 @@ class ShieldCommand(
         command: Command,
         alias: String,
         args: Array<out String>,
-    ): List<String> = if (sender.hasPermission("shield.admin") && args.size == 1) {
-        listOf("reload").filter { it.startsWith(args[0], ignoreCase = true) }
-    } else {
-        emptyList()
+    ): List<String> {
+        if (!sender.hasPermission("shield.admin")) return emptyList()
+        val candidates = when {
+            args.size == 1 -> listOf("reload", "enable", "disable", "interventions")
+            args.size == 2 && args[0].equals("interventions", ignoreCase = true) -> listOf("enable", "disable")
+            else -> return emptyList()
+        }
+        return candidates.filter { it.startsWith(args.last(), ignoreCase = true) }
     }
 }

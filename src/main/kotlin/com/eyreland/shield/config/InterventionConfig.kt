@@ -4,14 +4,13 @@ import org.bukkit.configuration.ConfigurationSection
 
 data class WarningConfig(
     val enabled: Boolean,
-    val cooldownMs: Long,
+    val windows: Int,
     val message: String,
 )
 
 data class KickConfig(
     val enabled: Boolean,
-    val minimumPriorWarnings: Int,
-    val cooldownMs: Long,
+    val windows: Int,
     val message: String,
 )
 
@@ -26,27 +25,26 @@ data class InterventionConfig(
         fun defaults() = InterventionConfig(
             enabled = true,
             ledgerRetentionMs = 168L * 60 * 60 * 1_000,
-            warning = WarningConfig(true, 1_800_000, "行为异常"),
-            kick = KickConfig(false, 1, 3_600_000, "异常行为持续发生"),
+            warning = WarningConfig(true, 3, "行为异常"),
+            kick = KickConfig(false, 3, "异常行为持续发生"),
         )
 
         fun from(root: ConfigurationSection): InterventionConfig {
             val defaults = defaults()
             val actions = section(root, "interventions", setOf("enabled", "warning", "kick"))
                 ?: return defaults
-            val warning = section(actions, "warning", setOf("enabled", "cooldown-seconds", "message"))
-            val kick = section(actions, "kick", setOf("enabled", "minimum-prior-warnings", "cooldown-seconds", "message"))
+            val warning = section(actions, "warning", setOf("enabled", "windows", "message"))
+            val kick = section(actions, "kick", setOf("enabled", "windows", "message"))
             return defaults.copy(
                 enabled = boolean(actions, "enabled", defaults.enabled),
                 warning = defaults.warning.copy(
                     enabled = boolean(warning, "enabled", defaults.warning.enabled),
-                    cooldownMs = integer(warning, "cooldown-seconds", defaults.warning.cooldownMs / 1_000, 300L..86_400L) * 1_000,
+                    windows = integer(warning, "windows", defaults.warning.windows.toLong(), 1L..100L).toInt(),
                     message = message(warning, defaults.warning.message),
                 ),
                 kick = defaults.kick.copy(
                     enabled = boolean(kick, "enabled", defaults.kick.enabled),
-                    minimumPriorWarnings = integer(kick, "minimum-prior-warnings", defaults.kick.minimumPriorWarnings.toLong(), 1L..100L).toInt(),
-                    cooldownMs = integer(kick, "cooldown-seconds", defaults.kick.cooldownMs / 1_000, 60L..604_800L) * 1_000,
+                    windows = integer(kick, "windows", defaults.kick.windows.toLong(), 1L..100L).toInt(),
                     message = message(kick, defaults.kick.message),
                 ),
             )

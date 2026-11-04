@@ -1,6 +1,7 @@
 package com.eyreland.shield.inference
 
 import com.eyreland.shield.capture.PacketSample
+import com.eyreland.shield.config.InterventionConfig
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 import java.util.UUID
@@ -32,6 +33,7 @@ internal object EventBatchEncoder {
         serverId: String,
         proxyMode: String,
         serverVersion: String,
+        interventions: InterventionConfig,
         nowMs: Long,
         batchId: UUID = UUID.randomUUID(),
     ): EncodedBatch {
@@ -60,6 +62,10 @@ internal object EventBatchEncoder {
                 "closed_sessions" to closedSessions,
                 "collection_telemetry" to telemetry,
                 "intervention_receipts" to interventionReceipts,
+                "intervention_windows" to linkedMapOf(
+                    "warning" to interventions.warning.windows.takeIf { interventions.enabled && interventions.warning.enabled },
+                    "kick" to interventions.kick.windows.takeIf { interventions.enabled && interventions.kick.enabled },
+                ),
             ),
         ).toByteArray(StandardCharsets.UTF_8)
         return EncodedBatch(
@@ -111,6 +117,7 @@ internal object EventBatchEncoder {
         "horizontal_speed_bps" to sample.horizontalSpeedBps,
         "movement_changed" to sample.movementChanged,
         "session_monotonic_us" to sample.sessionMonotonicUs,
+        "client_tick" to sample.clientTick,
         "source" to sample.source,
         "event_type" to sample.eventType,
         "target_entity_uuid" to sample.targetEntityUuid?.toString(),

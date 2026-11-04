@@ -1,19 +1,12 @@
 package com.eyreland.shield.inference
 
 import com.eyreland.shield.config.InterventionConfig
-import io.papermc.paper.dialog.Dialog
-import io.papermc.paper.registry.data.dialog.ActionButton
-import io.papermc.paper.registry.data.dialog.DialogBase
-import io.papermc.paper.registry.data.dialog.action.DialogAction
-import io.papermc.paper.registry.data.dialog.body.DialogBody
-import io.papermc.paper.registry.data.dialog.type.DialogType
 import net.kyori.adventure.text.Component
-import net.kyori.adventure.text.event.ClickCallback
+import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
 import org.bukkit.plugin.Plugin
 import java.nio.file.Path
 import java.time.Clock
-import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledExecutorService
@@ -102,7 +95,10 @@ class PlayerInterventionService(
                 return
             }
             when (directive.kind) {
-                InterventionKind.WARN -> showWarningDialog(player, directive, current)
+                InterventionKind.WARN -> {
+                    player.sendMessage(warningComponent(current))
+                    finish(directive, InterventionOutcome.APPLIED)
+                }
                 InterventionKind.KICK -> {
                     player.kick(kickComponent(current))
                     finish(directive, InterventionOutcome.APPLIED)
@@ -112,66 +108,6 @@ class PlayerInterventionService(
             logger.log(Level.WARNING, "执行玩家干预失败: ${directive.directiveId}", failure)
             finish(directive, InterventionOutcome.INVALID)
         }
-    }
-
-    private fun showWarningDialog(
-        player: Player,
-        directive: PlayerInterventionDirective,
-        current: InterventionConfig,
-    ) {
-        val nowMs = clock.millis()
-        val remainingMs = directive.expiresAtMs - nowMs
-        if (remainingMs <= 0) {
-            finish(directive, InterventionOutcome.EXPIRED, nowMs)
-            return
-        }
-        val closeAction = DialogAction.customClick(
-            { _, _ ->
-                val handledAtMs = clock.millis()
-                finish(
-                    directive,
-                    if (handledAtMs <= directive.expiresAtMs) {
-                        InterventionOutcome.APPLIED
-                    } else {
-                        InterventionOutcome.EXPIRED
-                    },
-                    handledAtMs,
-                )
-            },
-            ClickCallback.Options.builder()
-                .uses(1)
-                .lifetime(Duration.ofMillis(remainingMs))
-                .build(),
-        )
-        val dialog = Dialog.create { factory ->
-            factory.empty()
-                .base(
-                    DialogBase.builder(warningTitle())
-                        .canCloseWithEscape(false)
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .body(
-                            listOf(
-                                DialogBody.plainMessage(
-                                    Component.text(current.warning.message),
-                                ),
-                            ),
-                        )
-                        .build(),
-                )
-                .type(
-                    DialogType.notice(
-                        ActionButton.builder(Component.text("关闭"))
-                            .action(closeAction)
-                            .build(),
-                    ),
-                )
-        }
-        executor.schedule(
-            { finish(directive, InterventionOutcome.EXPIRED, clock.millis()) },
-            remainingMs,
-            TimeUnit.MILLISECONDS,
-        )
-        player.showDialog(dialog)
     }
 
     private fun finish(
@@ -223,7 +159,7 @@ class PlayerInterventionService(
     }
 
     internal companion object {
-        fun warningTitle(): Component = Component.text("行为提示")
+        fun warningComponent(config: InterventionConfig): Component = Component.text(config.warning.message, NamedTextColor.RED)
 
         fun kickComponent(config: InterventionConfig): Component = Component.text(config.kick.message)
     }

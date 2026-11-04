@@ -10,11 +10,11 @@ depend: [ProtocolLib]
 
 commands:
   shield:
-    description: 查看 shield 状态或重载行动配置
+    description: 查看 shield 状态、管理整体与玩家处置开关或重载配置
     permission: shield.admin
-    usage: '/shield [reload]'
+    usage: '/shield [reload|enable|disable] 或 /shield interventions <enable|disable>'
 
 permissions:
   shield.admin:
-    description: 允许查看 shield 状态与重载行动配置
+    description: 允许查看 shield 状态、管理开关与重载配置
     default: op
