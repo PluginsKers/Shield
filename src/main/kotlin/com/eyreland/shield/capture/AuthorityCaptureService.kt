@@ -10,8 +10,12 @@ import org.bukkit.Material
 import org.bukkit.NamespacedKey
 import org.bukkit.Registry
 import org.bukkit.block.Block
+import org.bukkit.entity.Boat
 import org.bukkit.entity.Entity
+import org.bukkit.entity.HappyGhast
+import org.bukkit.entity.Minecart
 import org.bukkit.entity.Player
+import org.bukkit.entity.Shulker
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.HandlerList
@@ -47,7 +51,7 @@ class AuthorityCaptureService(
 ) : Listener {
     private val heartbeatTasks = ConcurrentHashMap<UUID, ScheduledTask>()
     private val environmentTasks = ConcurrentHashMap<UUID, ScheduledTask>()
-    private val environments = ConcurrentHashMap<UUID, Map<String, Boolean>>()
+    private val environments = ConcurrentHashMap<UUID, Map<String, Any?>>()
 
     fun start() {
         plugin.server.pluginManager.registerEvents(this, plugin)
@@ -318,7 +322,7 @@ class AuthorityCaptureService(
         if (!player.isOnline) return
         val feet = player.location.block.type
         val eye = player.eyeLocation.block.type
-        val environment = linkedMapOf(
+        val environment = linkedMapOf<String, Any?>(
             "in_water" to player.isInWater,
             "under_water" to player.isUnderWater,
             "in_lava" to player.isInLava,
@@ -331,6 +335,7 @@ class AuthorityCaptureService(
             "flying" to player.isFlying,
             "riptiding" to player.isRiptiding,
             "inside_vehicle" to player.isInsideVehicle,
+            "unsupported_ground" to unsupportedGround(player),
         )
         if (environments.put(player.uniqueId, environment) == environment) return
         emit(
@@ -341,6 +346,25 @@ class AuthorityCaptureService(
             action = "CHANGE",
             payload = environment,
         )
+    }
+
+    /** 服务端脚下没有支撑、客户端却报着地或离地停在流体面上方时返回脚下方块，否则为 null。 */
+    private fun unsupportedGround(player: Player): String? {
+        if (player.isInsideVehicle || player.isFlying || player.isGliding) return null
+        if (!(player as Entity).isOnGround) {
+            // 原版落进或跳出流体只在液面附近停一两刻。
+            val fluid = player.location.subtract(0.0, SKIM_DEPTH, 0.0).block
+            return if (fluid.isLiquid && !player.isInWater && !player.isInLava) fluid.type.key.key else null
+        }
+        val below = player.location.subtract(0.0, SUPPORT_DEPTH, 0.0).block
+        val box = player.boundingBox
+        val underfoot = BoundingBox(box.minX, box.minY - SUPPORT_DEPTH, box.minZ, box.maxX, box.minY, box.maxZ)
+        if (player.wouldCollideUsing(underfoot)) return null
+        // 服务端只在快乐恶魂静止时算它的碰撞，船与矿车的位置也和客户端错开几刻。
+        val standable = player.world.getNearbyEntities(underfoot.clone().expand(ENTITY_MARGIN, ENTITY_DEPTH, ENTITY_MARGIN)) {
+            it is HappyGhast || it is Boat || it is Minecart || it is Shulker
+        }
+        return if (standable.isEmpty()) below.type.key.key else null
     }
 
     private fun scheduleHeartbeat(player: Player) {
@@ -494,4 +518,11 @@ class AuthorityCaptureService(
         "yaw" to location.yaw,
         "pitch" to location.pitch,
     )
+
+    private companion object {
+        const val SUPPORT_DEPTH = 0.03
+        const val SKIM_DEPTH = 0.2
+        const val ENTITY_MARGIN = 1.0
+        const val ENTITY_DEPTH = 0.5
+    }
 }
