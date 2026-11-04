@@ -1,15 +1,22 @@
-# 接入密钥修改后需重启服务器。
+# 接入密钥，修改后需重启。
 server-key: ""
 
-# 行动由推理端下发；修改后执行 /shield reload。
+# 上报地址，修改后需重启。
+endpoint: "https://api.i5res.com/shield/v1/events"
+
+# 总开关，可用 /shield enable、/shield disable 切换。
+enabled: true
+
+# 行动，修改后执行 /shield reload；windows 是连续 8 秒检测窗口数。
 interventions:
   enabled: true
+  # 连续 windows 个复查窗口后警告。
   warning:
     enabled: true
-    cooldown-seconds: 1800
+    windows: 3
     message: "行为异常"
+  # 连续 windows 个优先复查窗口后踢出。
   kick:
     enabled: false
-    minimum-prior-warnings: 1
-    cooldown-seconds: 3600
+    windows: 3
     message: "异常行为持续发生"

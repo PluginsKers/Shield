@@ -31,22 +31,12 @@ dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.7-R0.1-SNAPSHOT")
     // 运行时应安装明确支持目标 Minecraft 版本的 ProtocolLib 构建。
     compileOnly("net.dmulloy2:ProtocolLib:5.4.0")
-
-    testImplementation(platform("org.junit:junit-bom:5.11.3"))
-    testImplementation("org.junit.jupiter:junit-jupiter")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-    testImplementation(kotlin("test"))
-    testImplementation("io.papermc.paper:paper-api:1.21.7-R0.1-SNAPSHOT")
 }
 
 tasks {
     withType<JavaCompile>().configureEach {
         options.encoding = "UTF-8"
         options.release.set(21)
-    }
-
-    test {
-        useJUnitPlatform()
     }
 
     processResources {

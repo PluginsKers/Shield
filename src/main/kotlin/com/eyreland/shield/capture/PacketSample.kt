@@ -13,6 +13,7 @@ data class PacketSample(
     val sessionAgeMs: Long,
     val sincePreviousUs: Long?,
     val sessionMonotonicUs: Long,
+    val clientTick: Long?,
     val serverId: String,
     val proxyMode: String,
     val playerUuid: UUID,

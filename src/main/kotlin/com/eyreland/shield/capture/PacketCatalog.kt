@@ -44,6 +44,7 @@ object PacketCatalog {
         definition("ATTACK", CaptureCategory.COMBAT, ActivitySignal.ACTION),
         definition("USE_ENTITY", CaptureCategory.COMBAT, ActivitySignal.ACTION),
         definition("ARM_ANIMATION", CaptureCategory.COMBAT, ActivitySignal.ACTION),
+        definition("PUNCH", CaptureCategory.COMBAT, ActivitySignal.ACTION),
         definition("USE_ITEM", CaptureCategory.INTERACTION, ActivitySignal.ACTION),
         definition("USE_ITEM_ON", CaptureCategory.INTERACTION, ActivitySignal.ACTION),
         definition("BLOCK_DIG", CaptureCategory.INTERACTION, ActivitySignal.ACTION),
@@ -63,10 +64,6 @@ object PacketCatalog {
         definition("KEEP_ALIVE", CaptureCategory.NETWORK, ActivitySignal.NONE),
         definition("PONG", CaptureCategory.NETWORK, ActivitySignal.NONE),
     ).associateBy(PacketDefinition::name)
-
-    val movementObserverNames: Set<String> = definitions.values
-        .filter { it.activity == ActivitySignal.MOVEMENT }
-        .mapTo(linkedSetOf(), PacketDefinition::name)
 
     val activityObserverNames: Set<String> = definitions.values
         .filter { it.activity != ActivitySignal.NONE }
@@ -88,6 +85,7 @@ object PacketCatalog {
             "ATTACK" -> DecodedPacket(action = "ATTACK", targetEntityId = reader.int(0))
             "USE_ENTITY" -> useEntity(reader)
             "ARM_ANIMATION" -> DecodedPacket(action = "SWING", hand = reader.hand())
+            "PUNCH" -> DecodedPacket(action = "SWING", hand = "MAIN_HAND")
             "USE_ITEM" -> DecodedPacket(
                 action = "USE_ITEM",
                 hand = reader.hand(),

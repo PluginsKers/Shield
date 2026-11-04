@@ -123,14 +123,6 @@ internal class InterventionLedger(
         values.setProperty(directiveKey(directive.directiveId, "outcome"), outcome.wireName)
         values.setProperty(directiveKey(directive.directiveId, "handled-at"), nowMs.toString())
         values.setProperty(directiveKey(directive.directiveId, "receipt-pending"), "true")
-        if (outcome == InterventionOutcome.APPLIED && directive.kind == InterventionKind.WARN) {
-            val count = playerLong(directive.playerUuid, "warning-count") + 1
-            putPlayerLong(directive.playerUuid, "warning-count", count)
-            putPlayerLong(directive.playerUuid, "last-warning-at", nowMs)
-        }
-        if (outcome == InterventionOutcome.APPLIED && directive.kind == InterventionKind.KICK) {
-            putPlayerLong(directive.playerUuid, "last-kick-at", nowMs)
-        }
         persist()
         return InterventionReceipt(
             directive.directiveId,
@@ -178,18 +170,6 @@ internal class InterventionLedger(
             InterventionOutcome.IGNORED_DISABLED
         }
         hasOtherActiveDirective(directive) -> InterventionOutcome.IGNORED_COOLDOWN
-        directive.kind == InterventionKind.WARN &&
-            nowMs - playerLong(directive.playerUuid, "last-warning-at") < config.warning.cooldownMs -> {
-            InterventionOutcome.IGNORED_COOLDOWN
-        }
-        directive.kind == InterventionKind.KICK &&
-            playerLong(directive.playerUuid, "warning-count") < config.kick.minimumPriorWarnings -> {
-            InterventionOutcome.IGNORED_COOLDOWN
-        }
-        directive.kind == InterventionKind.KICK &&
-            nowMs - playerLong(directive.playerUuid, "last-kick-at") < config.kick.cooldownMs -> {
-            InterventionOutcome.IGNORED_COOLDOWN
-        }
         else -> null
     }
 
@@ -227,31 +207,12 @@ internal class InterventionLedger(
             removeDirective(id)
             changed = true
         }
-        val players = values.stringPropertyNames()
-            .asSequence()
-            .filter { it.startsWith("player.") && it.endsWith(".last-warning-at") }
-            .map { it.removePrefix("player.").removeSuffix(".last-warning-at") }
-            .toSet()
-        for (player in players) {
-            val uuid = runCatching { UUID.fromString(player) }.getOrNull() ?: continue
-            if (nowMs - playerLong(uuid, "last-warning-at") <= retentionMs) continue
-            values.remove(playerKey(uuid, "last-warning-at"))
-            values.remove(playerKey(uuid, "warning-count"))
-            changed = true
-        }
         if (changed) persist()
     }
 
     private fun removeDirective(id: String) {
         val prefix = "directive.$id."
         values.stringPropertyNames().filter { it.startsWith(prefix) }.forEach(values::remove)
-    }
-
-    private fun playerLong(uuid: UUID, field: String): Long =
-        values.getProperty(playerKey(uuid, field))?.toLongOrNull() ?: 0
-
-    private fun putPlayerLong(uuid: UUID, field: String, value: Long) {
-        values.setProperty(playerKey(uuid, field), value.toString())
     }
 
     private fun persist() {
@@ -271,6 +232,4 @@ internal class InterventionLedger(
     }
 
     private fun directiveKey(id: String, field: String): String = "directive.$id.$field"
-
-    private fun playerKey(uuid: UUID, field: String): String = "player.$uuid.$field"
 }

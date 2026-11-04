@@ -2,6 +2,7 @@ package com.eyreland.shield.inference
 
 import com.eyreland.shield.capture.PacketSample
 import com.eyreland.shield.config.InferenceConfig
+import com.eyreland.shield.config.InterventionConfig
 import java.io.IOException
 import java.net.URI
 import java.net.http.HttpClient
@@ -47,6 +48,8 @@ class HttpEventSink(
     private val httpClient: HttpClient = defaultHttpClient(config),
     private val responseHandler: (UUID, ByteArray) -> Unit = { _, _ -> },
     private val persistedReceiptHandler: (List<String>) -> Unit = {},
+    private val transmissionEnabled: () -> Boolean = { true },
+    private val interventions: () -> InterventionConfig,
 ) : EventSink {
     override val endpoint: URI = config.endpoint
 
@@ -78,7 +81,8 @@ class HttpEventSink(
     @Volatile private var started = false
     @Volatile private var nextAttemptAtMs = 0L
     private var consecutiveFailures = 0
-    private var task: ScheduledFuture<*>? = null
+    private var nextFlushAtMs = 0L
+    @Volatile private var task: ScheduledFuture<*>? = null
 
     override fun start() {
         ioLock.withLock {
@@ -87,13 +91,10 @@ class HttpEventSink(
             removeTemporaryFiles()
             enforceBounds(clock.millis())
             refreshSpoolStats()
+            task?.cancel(true)
+            nextFlushAtMs = clock.millis()
             started = true
-            task = executor.scheduleWithFixedDelay(
-                ::safeCycle,
-                0,
-                config.flushIntervalMs,
-                TimeUnit.MILLISECONDS,
-            )
+            scheduleCycle(0)
         }
         logger.info(
             "事件传输已启动: 接口=$endpoint, 批次大小=${config.batchSize}, " +
@@ -166,7 +167,6 @@ class HttpEventSink(
     override fun stop() {
         started = false
         task?.cancel(true)
-        task = null
         val acquired = try {
             ioLock.tryLock(2, TimeUnit.SECONDS)
         } catch (_: InterruptedException) {
@@ -178,6 +178,9 @@ class HttpEventSink(
             return
         }
         try {
+            // Cancel a continuation that raced with the first cancellation before we acquired the lock.
+            task?.cancel(true)
+            task = null
             persistQueued()
             enforceBounds(clock.millis())
             refreshSpoolStats()
@@ -188,26 +191,52 @@ class HttpEventSink(
         }
     }
 
-    private fun safeCycle() {
-        try {
+    private fun scheduleCycle(delayMs: Long) {
+        lateinit var scheduled: ScheduledFuture<*>
+        scheduled = executor.schedule({
             ioLock.withLock {
-                persistQueued()
-                enforceBounds(clock.millis())
-                if (clock.millis() >= nextAttemptAtMs) sendPending()
-                refreshSpoolStats()
+                // An already dispatched callback must not join a later stop/start cycle.
+                if (!started || task !== scheduled) return@withLock
+                safeCycle()
             }
+        }, delayMs, TimeUnit.MILLISECONDS)
+        task = scheduled
+    }
+
+    private fun safeCycle() {
+        var result = SendResult.RETRY_LATER
+        try {
+            val now = clock.millis()
+            val flushTail = now >= nextFlushAtMs
+            if (flushTail) nextFlushAtMs = now + config.flushIntervalMs
+            val available = queue.size
+            persistQueued(if (flushTail) available else available / config.batchSize * config.batchSize)
+            enforceBounds(clock.millis())
+            if (clock.millis() >= nextAttemptAtMs) result = sendPending()
+            refreshSpoolStats()
         } catch (t: Throwable) {
+            result = SendResult.RETRY_LATER
             networkFailed.incrementAndGet()
             scheduleRetry(clock.millis())
             logFailure("事件上传周期异常", t)
         }
+        if (started) {
+            val delay = when {
+                result != SendResult.SUCCESS -> config.flushIntervalMs
+                pendingBatches.get() > 0 || queue.size >= config.batchSize -> 0
+                else -> (nextFlushAtMs - clock.millis()).coerceAtLeast(0)
+            }
+            scheduleCycle(delay)
+        }
     }
 
-    private fun persistQueued() {
-        while (true) {
+    private fun persistQueued(limit: Int = Int.MAX_VALUE) {
+        var remaining = limit
+        while (remaining > 0) {
             val records = ArrayList<OutboundRecord>(config.batchSize)
-            queue.drainTo(records, config.batchSize)
+            queue.drainTo(records, min(config.batchSize, remaining))
             if (records.isEmpty()) return
+            remaining -= records.size
             try {
                 persistRecords(records)
             } catch (t: Throwable) {
@@ -225,6 +254,7 @@ class HttpEventSink(
             serverId = serverId,
             proxyMode = proxyMode,
             serverVersion = serverVersion.get(),
+            interventions = interventions(),
             nowMs = clock.millis(),
         )
         val oversized = encoded.transmittedBody.size > config.maxCompressedBatchBytes ||
@@ -262,16 +292,16 @@ class HttpEventSink(
         batch.batchId,
     )
 
-    private fun sendPending() {
+    private fun sendPending(): SendResult {
         val entries = pendingEntries()
         var attempted = 0
         for (entry in entries) {
-            if (attempted++ >= config.maxSendBatchesPerCycle) return
-            when (send(entry)) {
-                SendResult.SUCCESS -> Unit
-                SendResult.REJECTED, SendResult.RETRY_LATER -> return
-            }
+            if (!started || !transmissionEnabled() || Thread.currentThread().isInterrupted) return SendResult.RETRY_LATER
+            if (attempted++ >= config.maxSendBatchesPerCycle) return SendResult.SUCCESS
+            val result = send(entry)
+            if (result != SendResult.SUCCESS) return result
         }
+        return SendResult.SUCCESS
     }
 
     private fun send(entry: SpoolEntry): SendResult {
@@ -308,6 +338,7 @@ class HttpEventSink(
             .POST(HttpRequest.BodyPublishers.ofByteArray(body))
             .build()
 
+        if (!transmissionEnabled()) return SendResult.RETRY_LATER
         val response = try {
             httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream())
         } catch (interrupted: InterruptedException) {

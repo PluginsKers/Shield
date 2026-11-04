@@ -57,43 +57,33 @@ Shield 采集玩家移动、战斗与交互事件，异步发送到 Shield 服�
 
 | 命令 | 用途 |
 | --- | --- |
-| `/shield` | 查看采集、传输与队列状态 |
-| `/shield reload` | 校验配置并重载行动策略 |
+| `/shield` | 查看整体开关、玩家处置、采集、传输与队列状态 |
+| `/shield enable` | 开启 Shield |
+| `/shield disable` | 关闭采集、上报与新行动 |
+| `/shield interventions enable` | 允许玩家处置，保留警告与踢出各自的配置 |
+| `/shield interventions disable` | 关闭玩家处置，继续采集与上报 |
+| `/shield reload` | 校验配置并重载开关与行动策略 |
 
-两条命令均支持控制台，玩家需要 `shield.admin` 权限，默认授予 OP。
+所有命令均支持控制台，玩家需要 `shield.admin` 权限，默认授予 OP。
 
-<details>
-<summary>行动策略与配置校验</summary>
+整体开关对应根配置 `enabled`，默认为 `true`；玩家处置开关对应 `interventions.enabled`。开关命令校验并保存 `config.yml` 后生效。整体关闭期间，开启玩家处置只更新配置，处置随 Shield 开启后恢复。
 
-以下配置项位于 `interventions` 下。
+关闭 Shield 会停止采集、新的上报请求与新行动。重新开启后恢复上报，并为在线玩家建立新的采集会话。
 
-| 配置项 | 默认值 | 说明 |
-| --- | --- | --- |
-| `enabled` | `true` | 行动总开关 |
-| `warning.enabled` | `true` | 允许警告 |
-| `warning.cooldown-seconds` | `1800` | 警告冷却，范围 300–86400 秒 |
-| `warning.message` | `行为异常` | 玩家看到的警告文字 |
-| `kick.enabled` | `false` | 允许踢出 |
-| `kick.minimum-prior-warnings` | `1` | 至少成功确认的警告次数，范围 1–100 |
-| `kick.cooldown-seconds` | `3600` | 踢出冷却，范围 60–604800 秒 |
-| `kick.message` | `异常行为持续发生` | 玩家看到的踢出原因 |
+以下限制适用于 `interventions`，默认值见 [`config.yml`](src/main/resources/config.yml)。
 
-两种 `message` 均须为 1–256 字符的单行文字。未知配置项、错误类型与越界值会阻止插件启动；重载时遇到无效配置则保留原配置。
+| 配置项 | 限制 |
+| --- | --- |
+| `warning.cooldown-seconds` | 300–86400 秒 |
+| `kick.cooldown-seconds` | 60–604800 秒 |
+| `kick.minimum-prior-warnings` | 最低警告确认次数，取值 1–100 |
+| `warning.message`、`kick.message` | 1–256 字符的单行文字 |
 
-警告在玩家关闭提示后确认；踢出回执表示已调用踢出，不确认客户端断线。行动结果通过事件队列持久化、重试并上报，包含未启用、前置条件或冷却限制、玩家离线、指令过期及结果无效。
+未知配置项、错误类型或越界值会阻止插件启动。重载校验整份配置后应用开关与策略，文件缺失或配置无效时保留原值；尚未开始的行动按新策略执行。
 
-</details>
+关闭或重载均保留事件队列、回执、冷却记录与警告次数，不重复执行历史指令，队列仍受容量与保留期限限制。在途请求和已显示警告继续完成回执流程。警告在玩家关闭提示后确认；踢出回执只表示已调用踢出，不确认客户端断线。行动结果经事件队列持久化、重试并上报。
 
-<details>
-<summary>重载与状态保留</summary>
-
-`/shield reload` 读取并校验整份配置后一次性替换行动策略。文件缺失、YAML 错误或配置无效时，现有策略继续生效。
-
-尚未开始执行的行动按新策略检查；已显示的警告继续原有确认与回执流程。重载保留事件队列、冷却记录、警告次数与回执，不重复执行历史指令。
-
-`server-key` 绑定服务器身份与上报队列，变更后必须重启服务器。检测到密钥变更时，整个重载会被拒绝，行动配置也保持原值。
-
-</details>
+`server-key` 变更后须重启服务器；重启前，重载和开关命令拒绝变更后的密钥并保留当前配置。
 
 ## 数据与服务
 

@@ -53,51 +53,39 @@ The ProtocolLib Paper development build listed above requires Minecraft 26.2 or 
 
 ## Configuration and commands
 
-See [`config.yml`](src/main/resources/config.yml) for the full configuration. Setting only `server-key` uses the default intervention policy: warnings enabled, kicks disabled. Even when kicks are enabled, each kick requires a directive authorized by the remote service and must pass local warning count, cooldown and expiry checks.
+See [`config.yml`](src/main/resources/config.yml) for the full configuration. Setting only `server-key` uses the default intervention policy: warnings enabled, kicks disabled. The Shield service issues a warning after `warning.windows` consecutive review windows and a kick after `kick.windows` consecutive priority windows; each window covers 8 seconds of rule-detector evidence. The plugin reports both counts with every batch and only executes enabled, unexpired directives.
 
 | Command | Purpose |
 | --- | --- |
-| `/shield` | Show collection, delivery and queue status |
-| `/shield reload` | Validate configuration and reload the intervention policy |
+| `/shield` | Show overall control, interventions, collection, delivery and queue status |
+| `/shield enable` | Enable Shield |
+| `/shield disable` | Stop collection, delivery and new interventions |
+| `/shield interventions enable` | Allow interventions while preserving the individual warning and kick settings |
+| `/shield interventions disable` | Disable interventions while collection and delivery continue |
+| `/shield reload` | Validate configuration and reload controls and intervention policy |
 
-Both commands work from the console. Players need `shield.admin`, which defaults to OP.
+All commands work from the console. Players need `shield.admin`, which defaults to OP.
 
-<details>
-<summary>Intervention policy and validation</summary>
+The root `enabled` setting controls Shield and defaults to `true`; `interventions.enabled` controls interventions. Control commands validate and save `config.yml` before applying changes. Enabling interventions while Shield is disabled takes effect when Shield is enabled.
 
-These settings belong under `interventions`.
+Disabling Shield stops collection, new uploads and new interventions. Enabling it resumes delivery and starts new collection sessions for online players.
 
-| Setting | Default | Description |
-| --- | --- | --- |
-| `enabled` | `true` | Enable interventions |
-| `warning.enabled` | `true` | Allow warnings |
-| `warning.cooldown-seconds` | `1800` | Warning cooldown, 300–86400 seconds |
-| `warning.message` | `行为异常` | Warning text shown to the player |
-| `kick.enabled` | `false` | Allow kicks |
-| `kick.minimum-prior-warnings` | `1` | Required acknowledged warnings, 1–100 |
-| `kick.cooldown-seconds` | `3600` | Kick cooldown, 60–604800 seconds |
-| `kick.message` | `异常行为持续发生` | Kick reason shown to the player |
+The following limits apply under `interventions`; defaults are in [`config.yml`](src/main/resources/config.yml).
 
-Both messages must be a single line of 1–256 characters. Unknown settings, incorrect types and out-of-range values prevent startup. Invalid configuration during reload leaves the current policy in effect.
+| Setting | Limit |
+| --- | --- |
+| `warning.windows`, `kick.windows` | Consecutive 8-second windows, 1–100 |
+| `warning.message`, `kick.message` | A single line of 1–256 characters |
 
-Warnings are acknowledged when the player closes the dialog. A kick receipt confirms that the kick was invoked, not that the client disconnected. Outcomes are persisted, retried and reported through the event queue, including disabled actions, unmet prerequisites, cooldown limits, offline players, expired directives and invalid results.
+Unknown settings, incorrect types and out-of-range values prevent startup. Reload validates the entire configuration before applying controls and policy; missing files or invalid configuration leave the current settings in effect. Actions that have not started use the new policy.
 
-</details>
+Disabling or reloading preserves queued events and receipts without repeating past directives. Queue capacity and retention limits still apply. In-flight requests complete their receipt flow. A warning is a red chat message and its receipt confirms the message was sent; a kick receipt confirms invocation, not client disconnection. Action outcomes are persisted, retried and reported through the event queue.
 
-<details>
-<summary>Reload behavior and preserved state</summary>
-
-`/shield reload` reads and validates the entire configuration before replacing the intervention policy. Missing files, invalid YAML or invalid settings leave the current policy in effect.
-
-Actions that have not started are checked against the new policy. Warning dialogs already shown continue their existing acknowledgement and receipt flow. Reload preserves queued events, cooldowns, warning counts and receipts without repeating past directives.
-
-Changing `server-key` requires a server restart because the key identifies the server and its delivery queue. If a changed key is detected during reload, the entire reload is rejected, including changes to the intervention policy.
-
-</details>
+Changing `server-key` or `endpoint` requires a server restart. Until then, reload and control commands reject the change and retain the current configuration.
 
 ## Data and service dependency
 
-The plugin sends player UUIDs, names, worlds, game modes, positions, behavior events, collection status and intervention receipts to the Shield service over HTTPS. It does not collect chat content or custom payloads. Event fields are defined in [`PacketSample`](src/main/kotlin/com/eyreland/shield/capture/PacketSample.kt).
+The plugin sends player UUIDs, names, worlds, game modes, positions, behavior events, collection status and intervention receipts to the Shield service at `endpoint`, which defaults to the public HTTPS API. It does not collect chat content or custom payloads. Event fields are defined in [`PacketSample`](src/main/kotlin/com/eyreland/shield/capture/PacketSample.kt).
 
 When delivery fails, events are queued locally and retried. The pending queue holds up to 4096 batches; the disk cache is limited to 256 MiB and a retention period of 6 hours. Data exceeding capacity or retention limits is removed. Run `/shield` to inspect queue status and drop counts.
 

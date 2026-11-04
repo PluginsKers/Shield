@@ -6,14 +6,19 @@ import io.papermc.paper.event.entity.EntityPushedByEntityAttackEvent
 import io.papermc.paper.event.player.PrePlayerAttackEntityEvent
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 import org.bukkit.Location
+import org.bukkit.Material
 import org.bukkit.NamespacedKey
 import org.bukkit.Registry
+import org.bukkit.block.Block
 import org.bukkit.entity.Entity
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.HandlerList
 import org.bukkit.event.Listener
+import org.bukkit.event.block.BlockBreakEvent
+import org.bukkit.event.block.BlockDamageEvent
+import org.bukkit.event.block.BlockPlaceEvent
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityPotionEffectEvent
 import org.bukkit.event.entity.EntityToggleGlideEvent
@@ -26,6 +31,7 @@ import org.bukkit.event.player.PlayerVelocityEvent
 import org.bukkit.event.vehicle.VehicleEnterEvent
 import org.bukkit.event.vehicle.VehicleExitEvent
 import org.bukkit.plugin.Plugin
+import org.bukkit.util.BoundingBox
 import org.bukkit.util.Vector
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -40,24 +46,35 @@ class AuthorityCaptureService(
     private val capture: PacketCaptureService,
 ) : Listener {
     private val heartbeatTasks = ConcurrentHashMap<UUID, ScheduledTask>()
+    private val environmentTasks = ConcurrentHashMap<UUID, ScheduledTask>()
+    private val environments = ConcurrentHashMap<UUID, Map<String, Boolean>>()
 
     fun start() {
         plugin.server.pluginManager.registerEvents(this, plugin)
         plugin.server.onlinePlayers.forEach(::scheduleHeartbeat)
+        plugin.server.onlinePlayers.forEach(::scheduleEnvironment)
     }
 
     fun stop() {
         HandlerList.unregisterAll(this)
         heartbeatTasks.values.forEach(ScheduledTask::cancel)
         heartbeatTasks.clear()
+        environmentTasks.values.forEach(ScheduledTask::cancel)
+        environmentTasks.clear()
+        environments.clear()
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
-    fun onJoin(event: PlayerJoinEvent) = scheduleHeartbeat(event.player)
+    fun onJoin(event: PlayerJoinEvent) {
+        scheduleHeartbeat(event.player)
+        scheduleEnvironment(event.player)
+    }
 
     @EventHandler(priority = EventPriority.MONITOR)
     fun onQuit(event: PlayerQuitEvent) {
         heartbeatTasks.remove(event.player.uniqueId)?.cancel()
+        environmentTasks.remove(event.player.uniqueId)?.cancel()
+        environments.remove(event.player.uniqueId)
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -73,6 +90,65 @@ class AuthorityCaptureService(
             payload = linkedMapOf(
                 "will_attack" to event.willAttack(),
                 "cancelled" to event.isCancelled,
+                "item" to event.player.inventory.itemInMainHand.type.name,
+                "eye" to locationMap(event.player.eyeLocation),
+                "target_box" to boxMap(target.boundingBox),
+            ),
+        )
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    fun onBlockDamage(event: BlockDamageEvent) {
+        val block = event.block
+        emit(
+            player = event.player,
+            source = "server_event",
+            eventType = "block_damage",
+            category = CaptureCategory.INTERACTION,
+            action = "DAMAGE",
+            payload = linkedMapOf(
+                "cancelled" to event.isCancelled,
+                "block" to blockMap(block),
+                "material" to block.type.name,
+                "item" to event.itemInHand.type.name,
+                "insta_break" to event.instaBreak,
+                "break_speed" to block.getBreakSpeed(event.player),
+            ),
+        )
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    fun onBlockBreak(event: BlockBreakEvent) {
+        val block = event.block
+        emit(
+            player = event.player,
+            source = "server_event",
+            eventType = "block_break",
+            category = CaptureCategory.INTERACTION,
+            action = "BREAK",
+            payload = linkedMapOf(
+                "cancelled" to event.isCancelled,
+                "block" to blockMap(block),
+                "material" to block.type.name,
+                "item" to event.player.inventory.itemInMainHand.type.name,
+            ),
+        )
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    fun onBlockPlace(event: BlockPlaceEvent) {
+        emit(
+            player = event.player,
+            source = "server_event",
+            eventType = "block_place",
+            category = CaptureCategory.INTERACTION,
+            action = "PLACE",
+            payload = linkedMapOf(
+                "cancelled" to event.isCancelled,
+                "block" to blockMap(event.blockPlaced),
+                "material" to event.blockPlaced.type.name,
+                "against" to blockMap(event.blockAgainst),
+                "hand" to event.hand.name,
             ),
         )
     }
@@ -224,6 +300,49 @@ class AuthorityCaptureService(
         )
     }
 
+    private fun scheduleEnvironment(player: Player) {
+        val uuid = player.uniqueId
+        if (environmentTasks.containsKey(uuid)) return
+        val task = player.scheduler.runAtFixedRate(
+            plugin,
+            { emitEnvironmentChange(player) },
+            { environmentTasks.remove(uuid) },
+            1L,
+            1L,
+        )
+        if (task != null) environmentTasks[uuid] = task
+    }
+
+    /** 每刻比对，只在影响移动的环境变化时上报，补足心跳之间的空白。 */
+    private fun emitEnvironmentChange(player: Player) {
+        if (!player.isOnline) return
+        val feet = player.location.block.type
+        val eye = player.eyeLocation.block.type
+        val environment = linkedMapOf(
+            "in_water" to player.isInWater,
+            "under_water" to player.isUnderWater,
+            "in_lava" to player.isInLava,
+            "in_powder_snow" to player.isInPowderedSnow,
+            "in_cobweb" to (feet == Material.COBWEB || eye == Material.COBWEB),
+            "in_bubble_column" to (feet == Material.BUBBLE_COLUMN),
+            "climbing" to player.isClimbing,
+            "gliding" to player.isGliding,
+            "swimming" to player.isSwimming,
+            "flying" to player.isFlying,
+            "riptiding" to player.isRiptiding,
+            "inside_vehicle" to player.isInsideVehicle,
+        )
+        if (environments.put(player.uniqueId, environment) == environment) return
+        emit(
+            player = player,
+            source = "server_event",
+            eventType = "environment_change",
+            category = CaptureCategory.PLAYER_STATE,
+            action = "CHANGE",
+            payload = environment,
+        )
+    }
+
     private fun scheduleHeartbeat(player: Player) {
         val uuid = player.uniqueId
         if (heartbeatTasks.containsKey(uuid)) return
@@ -297,7 +416,7 @@ class AuthorityCaptureService(
         )
     }
 
-    private fun Player.attribute(key: String): Double? = attributeKeys(key)
+    private fun Player.attribute(key: String): Double? = listOf(key, "generic.$key")
         .firstNotNullOfOrNull { candidate ->
             Registry.ATTRIBUTE.get(NamespacedKey.minecraft(candidate))
                 ?.let { getAttribute(it)?.value }
@@ -352,6 +471,21 @@ class AuthorityCaptureService(
         "z" to vector.z,
     )
 
+    private fun blockMap(block: Block): Map<String, Int> = linkedMapOf(
+        "x" to block.x,
+        "y" to block.y,
+        "z" to block.z,
+    )
+
+    private fun boxMap(box: BoundingBox): Map<String, Double> = linkedMapOf(
+        "min_x" to box.minX,
+        "min_y" to box.minY,
+        "min_z" to box.minZ,
+        "max_x" to box.maxX,
+        "max_y" to box.maxY,
+        "max_z" to box.maxZ,
+    )
+
     private fun locationMap(location: Location): Map<String, Any?> = linkedMapOf(
         "world" to location.world?.name,
         "x" to location.x,
@@ -361,5 +495,3 @@ class AuthorityCaptureService(
         "pitch" to location.pitch,
     )
 }
-
-internal fun attributeKeys(key: String): List<String> = listOf(key, "generic.$key")

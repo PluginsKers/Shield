@@ -50,12 +50,12 @@ class ShieldPlugin : JavaPlugin() {
             return
         }
         val inferenceConfig = configuration.current.inference
-        val interventionConfig = configuration.current.interventions
+        val interventionConfig = configuration.current.activeInterventions
         val captureConfig = CaptureConfig(
             inferenceConfig.keyId,
             if (server.serverConfig.isProxyEnabled) "proxy" else "standalone",
         )
-        registerCommand(configuration)
+        registerCommand(configuration, captureConfig)
 
         val executor = Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(runnable, "shield-inference").apply { isDaemon = true }
@@ -76,11 +76,13 @@ class ShieldPlugin : JavaPlugin() {
             persistedReceiptHandler = { directiveIds ->
                 interventionService.acknowledgePersistedReceipts(directiveIds)
             },
+            transmissionEnabled = { configuration.current.enabled },
+            interventions = { configuration.current.activeInterventions },
         )
         try {
             interventionService = PlayerInterventionService(
                 plugin = this,
-                config = { configuration.current.interventions },
+                config = { configuration.current.activeInterventions },
                 ledgerPath = pluginRoot.resolve("intervention-ledger.properties"),
                 executor = executor,
                 receiptSink = eventSink::enqueueInterventionReceipt,
@@ -98,18 +100,15 @@ class ShieldPlugin : JavaPlugin() {
         sink = eventSink
         interventions = interventionService
 
-        val contextStore = PlayerContextStore(this)
-        contextStore.start()
-        contexts = contextStore
-        capture = newCapture(contextStore, eventSink, captureConfig)
+        updateCapture(configuration.current.enabled, captureConfig)
 
         logger.info(
-            "插件已启用 (玩家警告=${interventionConfig.enabled && interventionConfig.warning.enabled}, " +
+            "插件已加载 (Shield=${configuration.current.enabled}, 玩家警告=${interventionConfig.enabled && interventionConfig.warning.enabled}, " +
                 "踢出=${interventionConfig.enabled && interventionConfig.kick.enabled})",
         )
     }
 
-    private fun registerCommand(configuration: ReloadableConfig) {
+    private fun registerCommand(configuration: ReloadableConfig, captureConfig: CaptureConfig) {
         val cmd = getCommand("shield")
         if (cmd == null) {
             logger.warning("plugin.yml 未声明 shield 命令")
@@ -118,11 +117,26 @@ class ShieldPlugin : JavaPlugin() {
         val handler = ShieldCommand(
             capture = { capture },
             sink = { sink },
-            reloadConfig = configuration::reload,
+            configuration = configuration,
+            onConfigChanged = { updateCapture(configuration.current.enabled, captureConfig) },
+            execute = { action -> server.globalRegionScheduler.run(this) { action() } },
         )
         cmd.setExecutor(handler)
         cmd.tabCompleter = handler
         cmd.permissionMessage(LegacyComponentSerializer.legacySection().deserialize(ShieldCommandView.NO_PERMISSION))
+    }
+
+    private fun updateCapture(enabled: Boolean, captureConfig: CaptureConfig) {
+        if (!enabled) {
+            stopCapture()
+            return
+        }
+        if (capture != null) return
+        val eventSink = checkNotNull(sink)
+        val contextStore = PlayerContextStore(this)
+        contexts = contextStore
+        contextStore.start()
+        capture = newCapture(contextStore, eventSink, captureConfig)
     }
 
     private fun newCapture(
@@ -148,10 +162,17 @@ class ShieldPlugin : JavaPlugin() {
         return packetCapture
     }
 
-    override fun onDisable() {
+    private fun stopCapture() {
         authority?.stop()
         capture?.stop()
         contexts?.stop()
+        authority = null
+        capture = null
+        contexts = null
+    }
+
+    override fun onDisable() {
+        stopCapture()
         interventions?.stop()
         sink?.stop()
         ioExecutor?.let { executor ->
@@ -165,9 +186,6 @@ class ShieldPlugin : JavaPlugin() {
             }
         }
 
-        capture = null
-        authority = null
-        contexts = null
         sink = null
         ioExecutor = null
         interventions = null
