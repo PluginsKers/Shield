@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>Player behavior collection for Paper, Folia and Purpur</strong>
+  <strong>Player behavior collection for Paper, Folia, Canvas and Purpur</strong>
 </p>
 
 <p align="center">
@@ -37,19 +37,20 @@ Before upgrading, back up `plugins/shield`. Replace the JAR and restart the serv
 
 ## Compatibility
 
-Shield targets the Paper 1.21.7 API and Java 21 bytecode. The same JAR runs on Paper, Folia and Purpur. Other forks must preserve the required Paper APIs and region scheduling semantics. Your Java version must also meet the server's own requirements.
+Shield targets the Paper 1.21.7 API and Java 21 bytecode. Paper, Folia, Canvas and Purpur use the same JAR. Other forks must preserve the required Paper APIs and region scheduling semantics. Your Java version must also meet the server's own requirements.
 
-| Server | Minecraft | Java | ProtocolLib |
-| --- | --- | --- | --- |
-| Paper | 1.21.7 | 21 | 5.4.0 |
-| Folia | 1.21.8 | 21 | 5.4.0 |
-| Paper | 26.3 | 25 | 5.5.0-SNAPSHOT-d89a5de (Paper build) |
-| Folia | 26.3 | 25 | 5.5.0-SNAPSHOT-d89a5de (Paper build) |
-| Purpur | 26.3 | 25 | 5.5.0-SNAPSHOT-d89a5de (Paper build) |
+The current compatibility matrix uses ProtocolLib 5.5.0-SNAPSHOT from [Jenkins build 769](https://ci.dmulloy2.net/job/ProtocolLib/769/):
 
-These combinations have passed checks for plugin loading, capture initialization, configuration reload and clean shutdown. Those checks do not cover live player movement across regions, combat, warning acknowledgement or the production inference API. Other Minecraft versions and server forks have not been individually verified.
+| Minecraft | Java | Folia build | Canvas build | ProtocolLib artifact |
+| --- | --- | --- | --- | --- |
+| 1.21.11 | 21 | 14 | 794 | `ProtocolLib-Spigot.jar` |
+| 26.1.2 | 25 | 8 | 876 | `ProtocolLib-Spigot.jar` |
+| 26.2 | 25 | 7 | 994 | `ProtocolLib.jar` (Paper) |
+| 26.3 | 25 | 6 | 1001 | `ProtocolLib.jar` (Paper) |
 
-The ProtocolLib Paper development build listed above requires Minecraft 26.2 or later and cannot be used on older servers. Native Spigot/Bukkit, Fabric, Forge and Velocity/BungeeCord proxies are outside the supported scope.
+All eight combinations have passed plugin loading, capture initialization, status and control commands, configuration reload and clean shutdown. Folia and Canvas 26.3 also cover player login, heartbeats, cross-region teleport and chat warning delivery with receipts against a local service fixture. These checks do not verify combat detection accuracy or the production inference service.
+
+The ProtocolLib Paper artifact requires Minecraft 26.2 or later. Use its Spigot artifact on the older versions listed above, including Folia and Canvas. Native Spigot/Bukkit, Fabric, Forge and Velocity/BungeeCord proxies are outside the supported scope.
 
 ## Configuration and commands
 
@@ -98,6 +99,8 @@ Use JDK 25 and the included Gradle Wrapper. Runtime requirements are listed unde
 ```
 
 On Windows, run `.\gradlew.bat build`. The output is `build/libs/shield-<version>.jar`. Set `-Pversion=<version>` to choose the version number. Dependencies and packaging are declared in [`build.gradle.kts`](build.gradle.kts).
+
+[GitHub Actions](https://github.com/PluginsKers/Shield/actions/workflows/build.yml) builds pull requests, updates to `main` and manual runs, and uploads the JAR with `SHA256SUMS`. Pushing a `vX.Y.Z` tag builds that version and publishes both files in a GitHub Release. All supported server versions share this artifact.
 
 ## Contributing
 
