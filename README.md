@@ -104,7 +104,7 @@ Use JDK 25 and the included Gradle Wrapper. Runtime requirements are listed unde
 
 On Windows, run `.\gradlew.bat build`. `build/distributions` contains the universal `shield-<version>.jar` and six files named `shield-<version>-mc<minecraft-version>.jar` for the versions in the table. Every file contains the same universal plugin. Set `-Pversion=<version>` to choose the plugin version number. Dependencies and packaging are declared in [`build.gradle.kts`](build.gradle.kts).
 
-[GitHub Actions](https://github.com/PluginsKers/Shield/actions/workflows/build.yml) builds pull requests, updates to `main` and manual runs, and uploads all seven JARs with `SHA256SUMS`. Pushing a `vX.Y.Z` tag builds that plugin version and publishes the packages and checksum file in a GitHub Release.
+[GitHub Actions](https://github.com/PluginsKers/Shield/actions/workflows/build.yml) builds pull requests, updates to `main` and manual runs, and uploads all seven JARs with `SHA256SUMS`. Pushing a `vX.Y.Z` tag, or running the workflow on that tag, builds that plugin version and publishes the packages and checksum file in a GitHub Release.
 
 ## Contributing
 
